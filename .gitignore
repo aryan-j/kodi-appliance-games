@@ -1,0 +1,12 @@
+__pycache__/
+*.py[cod]
+*.log
+*.db
+*.db-journal
+igdb-token.json
+playnite-export.json
+settings.xml
+
+# Build output: retain only the current packaged companion binary.
+resources/companion/KodiApplianceOverlay-*.exe
+!resources/companion/KodiApplianceOverlay-0.4.6.exe

@@ -1,0 +1,70 @@
+# Kodi Media Center language file
+# Addon Name: Kodi Appliance Games
+# Addon id: plugin.program.appliance.games
+msgid ""
+msgstr ""
+"Project-Id-Version: Kodi Appliance Games\n"
+"Language: en_GB\n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=UTF-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+
+msgctxt "#30000"
+msgid "Game Metadata"
+msgstr ""
+
+msgctxt "#30001"
+msgid "IGDB"
+msgstr ""
+
+msgctxt "#30002"
+msgid "IGDB client ID"
+msgstr ""
+
+msgctxt "#30003"
+msgid "IGDB client secret"
+msgstr ""
+
+msgctxt "#30004"
+msgid "Client ID from a confidential application registered in the Twitch Developer Console."
+msgstr ""
+
+msgctxt "#30005"
+msgid "Client secret generated for the same Twitch application."
+msgstr ""
+
+msgctxt "#30006"
+msgid "SteamGridDB Artwork"
+msgstr ""
+
+msgctxt "#30007"
+msgid "SteamGridDB API key"
+msgstr ""
+
+msgctxt "#30008"
+msgid "Personal API key from your SteamGridDB profile preferences."
+msgstr ""
+
+msgctxt "#30100"
+msgid "Game Overlay"
+msgstr ""
+
+msgctxt "#30101"
+msgid "Controller overlay shown above running PC games."
+msgstr ""
+
+msgctxt "#30102"
+msgid "Enable game overlay"
+msgstr ""
+
+msgctxt "#30103"
+msgid "Open with the controller Guide/PS button. Ctrl+Shift+F12 is available as a DS4Windows mapping fallback."
+msgstr ""
+
+msgctxt "#30104"
+msgid "Pause game while overlay is open"
+msgstr ""
+
+msgctxt "#30105"
+msgid "Suspends the tracked game while the overlay is visible and resumes it when returning. Disable this for incompatible or protected games."
+msgstr ""
