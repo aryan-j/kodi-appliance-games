@@ -22,7 +22,10 @@ untracked:
 - `settings.xml`
 - `igdb-token.json`
 - `games.db`
-- `playnite-export.json`
+
+Game records contain direct executable, argument and working-directory data.
+Artwork copied into the add-on profile remains owned by Kodi, so browsing and
+launching do not require an external library manager.
 
 ## Building the companion
 
