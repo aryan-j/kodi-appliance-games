@@ -109,7 +109,6 @@ def root():
     add_folder("All Games", url("list", view="all"))
     add_folder("Add Game", url("add_game"))
     add_folder("Metadata Settings", url("settings"))
-    add_folder("Import Existing Library", url("import"))
     xbmcplugin.setContent(HANDLE, "games")
     xbmcplugin.endOfDirectory(HANDLE)
 
@@ -456,9 +455,5 @@ def run():
         test_metadata()
     elif action == "test_steamgriddb":
         test_steamgriddb()
-    elif action == "import":
-        count = database.import_export()
-        xbmcgui.Dialog().notification("Games", f"Imported {count} games")
-        xbmcplugin.endOfDirectory(HANDLE, succeeded=True, updateListing=True)
     elif action == "configure":
         configure_skin()

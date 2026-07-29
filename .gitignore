@@ -4,7 +4,6 @@ __pycache__/
 *.db
 *.db-journal
 igdb-token.json
-playnite-export.json
 settings.xml
 
 # Build output: retain only the current packaged companion binary.

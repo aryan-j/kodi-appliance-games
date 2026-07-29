@@ -1,6 +1,4 @@
-import json
 import os
-import shutil
 import sqlite3
 import time
 
@@ -9,10 +7,6 @@ import xbmcvfs
 
 PROFILE = xbmcvfs.translatePath("special://profile/addon_data/plugin.program.appliance.games")
 DB_PATH = os.path.join(PROFILE, "games.db")
-IMPORT_PATH = os.path.join(PROFILE, "playnite-export.json")
-MEDIA_PATH = os.path.join(PROFILE, "media")
-
-
 SCHEMA = """
 PRAGMA foreign_keys = ON;
 
@@ -77,114 +71,6 @@ def connect():
     if "trailer" not in columns:
         conn.execute("ALTER TABLE games ADD COLUMN trailer TEXT")
     return conn
-
-
-def _text(value):
-    if value is None:
-        return ""
-    if isinstance(value, list):
-        return " / ".join(str(item) for item in value if item)
-    return str(value)
-
-
-def _owned_artwork(game_id, role, source):
-    """Copy imported artwork into Kodi storage and return only a Kodi path."""
-    filename = "landscape" if role == "icon" else role
-    directory = os.path.join(MEDIA_PATH, game_id)
-    os.makedirs(directory, exist_ok=True)
-    if source and os.path.isfile(source):
-        extension = os.path.splitext(source)[1].lower() or ".img"
-        destination = os.path.join(directory, filename + extension)
-        if os.path.normcase(os.path.abspath(source)) != os.path.normcase(
-            os.path.abspath(destination)
-        ):
-            temporary = destination + ".import"
-            shutil.copy2(source, temporary)
-            os.replace(temporary, destination)
-        return destination
-    for extension in (".png", ".jpg", ".jpeg", ".webp", ".bmp", ".ico", ".img"):
-        existing = os.path.join(directory, filename + extension)
-        if os.path.isfile(existing):
-            return existing
-    return ""
-
-
-def import_export(path=IMPORT_PATH):
-    if not os.path.exists(path):
-        return 0
-    with open(path, "r", encoding="utf-8-sig") as stream:
-        payload = json.load(stream)
-    games = payload.get("games", payload if isinstance(payload, list) else [])
-    count = 0
-    with connect() as conn:
-        for game in games:
-            executable = game.get("executable", "")
-            if not executable:
-                continue
-            values = {
-                "id": game["id"],
-                "name": game.get("name") or "Unknown game",
-                "sort_name": game.get("sort_name") or game.get("name") or "",
-                "description": game.get("description") or "",
-                "release_date": game.get("release_date") or "",
-                "year": game.get("year"),
-                "developer": _text(game.get("developers")),
-                "publisher": _text(game.get("publishers")),
-                "genres": _text(game.get("genres")),
-                "platforms": _text(game.get("platforms")),
-                "community_score": game.get("community_score"),
-                "executable": executable,
-                "arguments": game.get("arguments") or "",
-                "working_directory": game.get("working_directory") or os.path.dirname(executable),
-                "install_directory": game.get("install_directory") or os.path.dirname(executable),
-                "cover": _owned_artwork(game["id"], "cover", game.get("cover") or ""),
-                "background": _owned_artwork(
-                    game["id"], "background", game.get("background") or ""
-                ),
-                "icon": "",
-                "logo": _owned_artwork(game["id"], "logo", game.get("logo") or ""),
-                "trailer": game.get("trailer") or "",
-                "favorite": int(bool(game.get("favorite"))),
-                "hidden": int(bool(game.get("hidden"))),
-                "installed": int(bool(game.get("installed", True))),
-                "play_count": int(game.get("play_count") or 0),
-                "playtime_seconds": int(game.get("playtime_seconds") or 0),
-                "last_played": game.get("last_played"),
-                "source": game.get("source") or "playnite-import",
-                "source_id": game.get("source_id") or game["id"],
-            }
-            # Landscape is deliberately the same file content as background.
-            values["icon"] = _owned_artwork(
-                game["id"], "icon", values["background"]
-            )
-            columns = ", ".join(values)
-            placeholders = ", ".join(":" + key for key in values)
-            updates = ", ".join(
-                f"{key}=excluded.{key}"
-                for key in values
-                if key not in {
-                    "id",
-                    "play_count",
-                    "playtime_seconds",
-                    "last_played",
-                    "description",
-                    "trailer",
-                }
-            )
-            updates += (
-                ", description=CASE WHEN games.description IS NULL "
-                "OR games.description = '' THEN excluded.description "
-                "ELSE games.description END"
-                ", trailer=CASE WHEN excluded.trailer != '' "
-                "THEN excluded.trailer ELSE games.trailer END"
-            )
-            conn.execute(
-                f"INSERT INTO games ({columns}) VALUES ({placeholders}) "
-                f"ON CONFLICT(id) DO UPDATE SET {updates}, updated_at=CURRENT_TIMESTAMP",
-                values,
-            )
-            count += 1
-    return count
 
 
 def list_games(where="installed = 1 AND hidden = 0", params=(), order="name COLLATE NOCASE"):
