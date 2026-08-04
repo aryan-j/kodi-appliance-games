@@ -34,12 +34,16 @@ def game_item(game, origin="list"):
     # directory is being populated so hub cards always return to window 1102.
     if origin == "list" and xbmc.getCondVisibility("Window.IsActive(1102)"):
         origin = "hub"
-    item = build_game_listitem(game)
     target = url("details", game_id=game["id"], origin=origin)
+    item = build_game_listitem(game, path=target)
     # Treat the details route as an action rather than a folder. Kodi otherwise
     # replaces the hub with MyVideoNav while the modal info dialog is opening,
     # briefly exposing its Files / Playlists / Videos root.
     item.setProperty("IsPlayable", "true")
+    # Arctic Fuse uses this existing connector when opening a widget item from
+    # the More Info dialog. Keep the Games route on the item rather than
+    # requiring a Kodi restart or a custom overlay.
+    item.setProperty("folderpath", target)
     favorite_action = "unfavorite" if game["favorite"] else "favorite"
     favorite_label = "Remove from Favorites" if game["favorite"] else "Add to Favorites"
     item.addContextMenuItems([
@@ -51,12 +55,12 @@ def game_item(game, origin="list"):
     xbmcplugin.addDirectoryItem(HANDLE, target, item, False)
 
 
-def build_game_listitem(game, path=""):
+def build_game_listitem(game, path="", dialog=False):
     item = xbmcgui.ListItem(label=game["name"], path=path)
     tag = item.getVideoInfoTag()
-    # Leave DBType unset. Arctic Fuse overlays labels on generic "video"
-    # poster items, while its movie and TV poster widgets remain artwork-only.
-    # The VideoInfoTag still carries game details for dialogs and filtering.
+    # Keep hub cards as generic appliance items. The More Info dialog opts into
+    # the standard video connector below so Arctic Fuse can reuse its normal
+    # rating, release-date and metadata line without changing hub artwork.
     tag.setTitle(game["name"])
     tag.setSortTitle(game["sort_name"] or game["name"])
     tag.setPlot(game["description"] or "")
@@ -72,9 +76,10 @@ def build_game_listitem(game, path=""):
             studios.append(value)
     if studios:
         tag.setStudios(studios)
-    if game["community_score"]:
+    rating = _rating_10(game["community_score"])
+    if rating is not None:
         # IGDB ratings use a 0-100 scale; Kodi and Arctic Fuse expect 0-10.
-        tag.setRating(float(game["community_score"]) / 10.0, 0, "igdb", True)
+        tag.setRating(rating, 0, "igdb", True)
     if game["release_date"]:
         tag.setPremiered(game["release_date"])
     tag.setPlaycount(int(game["play_count"] or 0))
@@ -102,6 +107,7 @@ def build_game_listitem(game, path=""):
     item.setProperty("game.franchise", game["franchise"] or "")
     item.setProperty("game.engine", game["engines"] or "")
     item.setProperty("game.release_date", game["release_date"] or "")
+    item.setProperty("game.release_year", str(game["year"] or ""))
     item.setProperty("game.rating.igdb", _score(game["community_score"]))
     item.setProperty("game.rating.igdb_count", str(game["community_score_count"] or 0))
     item.setProperty("game.platforms", game["platforms"] or "")
@@ -120,6 +126,11 @@ def build_game_listitem(game, path=""):
     item.setProperty("game.related.year", url("related", game_id=game["id"], field="year"))
     item.setProperty("game.related.publisher", url("related", game_id=game["id"], field="publisher"))
     item.setProperty("game.related.genre", url("related", game_id=game["id"], field="genre"))
+    # The shared Arctic Fuse info line is enabled for the standard video
+    # connector. Set it only on the dialog item so Games hub cards retain
+    # their existing appliance presentation.
+    if dialog:
+        item.setProperty("DBType", "video")
     executable_available = bool(game["executable"] and os.path.isfile(os.path.expandvars(game["executable"])))
     item.setProperty("game.available", "true" if executable_available else "false")
     if not executable_available:
@@ -128,11 +139,28 @@ def build_game_listitem(game, path=""):
 
 
 def _score(value):
-    return f"{float(value) / 10.0:.1f}" if value is not None else ""
+    score = _rating_10(value)
+    return f"{score:.1f}" if score is not None else ""
 
 
 def _score_100(value):
-    return f"{float(value):.1f}" if value is not None else ""
+    score = _rating_10(value)
+    return f"{score * 10.0:.1f}" if score is not None else ""
+
+
+def _rating_10(value):
+    """Return a bounded Kodi rating on its 0-10 scale.
+
+    Older appliance records stored a 0-10 score while IGDB refreshes return
+    0-100. Accept both during the migration so every game renders the same
+    five-star Arctic Fuse rating without rewriting the database.
+    """
+    if value is None:
+        return None
+    score = float(value)
+    if score > 10.0:
+        score /= 10.0
+    return max(0.0, min(10.0, score))
 
 
 def _duration(seconds):
@@ -222,7 +250,7 @@ def details(game_id, origin="list"):
         xbmcplugin.endOfDirectory(HANDLE, succeeded=False)
         return
     play_url = url("play", game_id=game_id)
-    item = build_game_listitem(game, path=play_url)
+    item = build_game_listitem(game, path=play_url, dialog=True)
     item.setProperty("IsPlayable", "true")
     xbmcgui.Dialog().info(item)
     # This is a non-folder plugin action, so complete it as an unsuccessful
