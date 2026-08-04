@@ -109,8 +109,12 @@ def build_game_listitem(game, path=""):
     item.setProperty("game.perspectives", game["player_perspectives"] or "")
     item.setProperty("game.themes", game["themes"] or "")
     item.setProperty("game.storyline", game["storyline"] or "")
-    item.setProperty("game.time_to_beat.main", _duration(game["time_to_beat_hastily"]))
-    item.setProperty("game.time_to_beat.extras", _duration(game["time_to_beat_normally"]))
+    item.setProperty("game.igdb_summary", game["igdb_summary"] or "")
+    item.setProperty("game.genres", game["genres"] or "")
+    item.setProperty("game.igdb_user_score", _score_100(game["community_score"]))
+    item.setProperty("game.time_to_beat.main", _duration(game["time_to_beat_normally"]))
+    item.setProperty("game.time_to_beat.extra", _duration(game["time_to_beat_hastily"]))
+    item.setProperty("game.time_to_beat.extras", _duration(game["time_to_beat_hastily"]))
     item.setProperty("game.time_to_beat.completionist", _duration(game["time_to_beat_completely"]))
     item.setProperty("game.time_to_beat.count", str(game["time_to_beat_count"] or 0))
     item.setProperty("game.related.year", url("related", game_id=game["id"], field="year"))
@@ -125,6 +129,10 @@ def build_game_listitem(game, path=""):
 
 def _score(value):
     return f"{float(value) / 10.0:.1f}" if value is not None else ""
+
+
+def _score_100(value):
+    return f"{float(value):.1f}" if value is not None else ""
 
 
 def _duration(seconds):
@@ -186,8 +194,22 @@ def genre(name):
     xbmcplugin.endOfDirectory(HANDLE)
 
 
-def related(game_id, field):
-    for game in database.related_games(game_id, field):
+def related(game_id="", field="", kind="", value="", exclude=""):
+    if game_id and field:
+        games = database.related_games(game_id, field)
+    else:
+        columns = {"year": "year", "publisher": "publisher"}
+        column = columns.get(kind)
+        if not column or not value:
+            xbmcplugin.endOfDirectory(HANDLE, succeeded=False)
+            return
+        where = f"installed = 1 AND hidden = 0 AND {column} = ?"
+        params = [value]
+        if exclude:
+            where += " AND id != ?"
+            params.append(exclude)
+        games = database.list_games(where, tuple(params), order="name COLLATE NOCASE")
+    for game in games:
         game_item(game)
     xbmcplugin.setContent(HANDLE, "games")
     xbmcplugin.endOfDirectory(HANDLE)
@@ -490,6 +512,9 @@ def run():
         related(
             params.get("game_id", [""])[0],
             params.get("field", [""])[0],
+            params.get("kind", [""])[0],
+            params.get("value", [""])[0],
+            params.get("exclude", [""])[0],
         )
     elif action == "details":
         details(

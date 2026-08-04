@@ -160,6 +160,7 @@ def normalize(result, time_to_beat=None):
         "igdb_id": str(result["id"]),
         "name": result.get("name") or "Unknown game",
         "description": result.get("summary") or "",
+        "igdb_summary": result.get("summary") or "",
         "storyline": result.get("storyline") or "",
         "release_date": release_date,
         "year": int(release_date[:4]) if release_date else None,

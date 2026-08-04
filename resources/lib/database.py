@@ -15,6 +15,7 @@ CREATE TABLE IF NOT EXISTS games (
     name TEXT NOT NULL,
     sort_name TEXT,
     description TEXT,
+    igdb_summary TEXT,
     release_date TEXT,
     year INTEGER,
     developer TEXT,
@@ -85,6 +86,7 @@ def connect():
     columns = {row["name"] for row in conn.execute("PRAGMA table_info(games)")}
     migrations = {
         "trailer": "TEXT",
+        "igdb_summary": "TEXT",
         "community_score_count": "INTEGER NOT NULL DEFAULT 0",
         "franchise": "TEXT",
         "engines": "TEXT",
@@ -143,7 +145,7 @@ def add_or_update_metadata(game_id, executable, values):
         conn.execute(
             """
             INSERT INTO games (
-                id, name, sort_name, description, release_date, year,
+                id, name, sort_name, description, igdb_summary, release_date, year,
                 developer, publisher, genres, platforms, community_score,
                 community_score_count, franchise, engines, storyline,
                 game_modes, player_perspectives, themes,
@@ -152,7 +154,7 @@ def add_or_update_metadata(game_id, executable, values):
                 executable, working_directory, install_directory,
                 trailer, installed, source, source_id, metadata_refreshed_at
             ) VALUES (
-                :id, :name, :name, :description, :release_date, :year,
+                :id, :name, :name, :description, :igdb_summary, :release_date, :year,
                 :developer, :publisher, :genres, :platforms, :community_score,
                 :community_score_count, :franchise, :engines, :storyline,
                 :game_modes, :player_perspectives, :themes,
@@ -164,7 +166,11 @@ def add_or_update_metadata(game_id, executable, values):
             ON CONFLICT(id) DO UPDATE SET
                 name=excluded.name,
                 sort_name=excluded.sort_name,
-                description=excluded.description,
+                description=CASE
+                    WHEN games.description IS NULL OR games.description = '' THEN excluded.description
+                    ELSE games.description
+                END,
+                igdb_summary=excluded.igdb_summary,
                 release_date=excluded.release_date,
                 year=excluded.year,
                 developer=excluded.developer,
@@ -197,6 +203,7 @@ def add_or_update_metadata(game_id, executable, values):
                 "id": game_id,
                 "name": values["name"],
                 "description": values["description"],
+                "igdb_summary": values.get("igdb_summary") or values["description"],
                 "release_date": values["release_date"],
                 "year": values["year"],
                 "developer": values["developer"],

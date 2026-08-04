@@ -35,6 +35,10 @@ artwork, executable details, favourites or play statistics. A SteamGridDB
 refresh updates only successfully downloaded artwork roles and persists the
 matched SteamGridDB game ID for stable future refreshes.
 
+Game descriptions are treated as user-curated state. IGDB refreshes preserve
+the current description and expose the provider summary separately through the
+`igdb_summary` database field and `game.igdb_summary` list-item property.
+
 IGDB fields include publisher, franchise, engine, release date, community
 rating, genres, platforms, game modes, player perspectives and time-to-beat
 estimates. List items expose these through `game.*` properties. Related-list

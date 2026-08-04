@@ -54,6 +54,7 @@ class MetadataTests(unittest.TestCase):
         self.assertEqual(values["engines"], "Engine")
         self.assertEqual(values["community_score_count"], 123)
         self.assertEqual(values["time_to_beat_normally"], 5400)
+        self.assertEqual(values["igdb_summary"], "Summary")
 
     def test_time_to_beat_uses_its_own_endpoint(self):
         with mock.patch.object(metadata, "_query", return_value=[{"normally": 120}]) as query:
@@ -95,13 +96,14 @@ class DatabaseTests(unittest.TestCase):
             conn.execute(
                 """
                 INSERT INTO games (
-                    id, name, executable, cover, favorite, play_count,
+                    id, name, description, executable, cover, favorite, play_count,
                     playtime_seconds, source, source_id
-                ) VALUES ('g1', 'Old', 'game.exe', 'old.jpg', 1, 4, 500, 'legacy', '1')
+                ) VALUES ('g1', 'Old', 'Curated plot', 'game.exe', 'old.jpg', 1, 4, 500, 'legacy', '1')
                 """
             )
         values = {
-            "name": "New", "description": "Plot", "release_date": "2020-01-01",
+            "name": "New", "description": "IGDB plot", "igdb_summary": "IGDB plot",
+            "release_date": "2020-01-01",
             "year": 2020, "developer": "Dev", "publisher": "Pub",
             "genres": "Action", "platforms": "PC", "community_score": 80.0,
             "community_score_count": 20, "franchise": "Series", "engines": "Engine",
@@ -114,9 +116,16 @@ class DatabaseTests(unittest.TestCase):
         database.add_or_update_metadata("g1", "", values)
         row = database.get_game("g1")
         self.assertEqual(row["name"], "New")
+        self.assertEqual(row["description"], "Curated plot")
+        self.assertEqual(row["igdb_summary"], "IGDB plot")
         self.assertEqual(row["cover"], "old.jpg")
         self.assertEqual(row["executable"], "game.exe")
         self.assertEqual((row["favorite"], row["play_count"], row["playtime_seconds"]), (1, 4, 500))
+
+        database.add_or_update_metadata("g2", "new.exe", values)
+        new_row = database.get_game("g2")
+        self.assertEqual(new_row["description"], "IGDB plot")
+        self.assertEqual(new_row["igdb_summary"], "IGDB plot")
 
     def test_artwork_and_related_filters_are_isolated(self):
         with database.connect() as conn:
