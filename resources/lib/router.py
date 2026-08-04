@@ -117,9 +117,6 @@ def build_game_listitem(game, path=""):
     item.setProperty("game.time_to_beat.extras", _duration(game["time_to_beat_hastily"]))
     item.setProperty("game.time_to_beat.completionist", _duration(game["time_to_beat_completely"]))
     item.setProperty("game.time_to_beat.count", str(game["time_to_beat_count"] or 0))
-    item.setProperty("game.related.year", url("related", game_id=game["id"], field="year"))
-    item.setProperty("game.related.publisher", url("related", game_id=game["id"], field="publisher"))
-    item.setProperty("game.related.genre", url("related", game_id=game["id"], field="genre"))
     executable_available = bool(game["executable"] and os.path.isfile(os.path.expandvars(game["executable"])))
     item.setProperty("game.available", "true" if executable_available else "false")
     if not executable_available:
