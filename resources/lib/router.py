@@ -57,39 +57,54 @@ def game_item(game, origin="list"):
 
 def build_game_listitem(game, path="", dialog=False):
     item = xbmcgui.ListItem(label=game["name"], path=path)
-    tag = item.getVideoInfoTag()
-    # Keep hub cards as generic appliance items. The More Info dialog opts into
-    # the standard video connector below so Arctic Fuse can reuse its normal
-    # rating, release-date and metadata line without changing hub artwork.
-    tag.setTitle(game["name"])
-    tag.setSortTitle(game["sort_name"] or game["name"])
-    tag.setPlot(game["description"] or "")
-    if game["year"]:
-        tag.setYear(int(game["year"]))
     genres = [value.strip() for value in (game["genres"] or "").split("/") if value.strip()]
-    if genres:
-        tag.setGenres(genres)
-    studios = []
-    for value in (game["developer"], game["publisher"]):
-        value = (value or "").strip()
-        if value and value.casefold() not in {studio.casefold() for studio in studios}:
-            studios.append(value)
-    if studios:
-        tag.setStudios(studios)
     rating = _rating_10(game["community_score"])
-    if rating is not None:
-        # IGDB ratings use a 0-100 scale; Kodi and Arctic Fuse expect 0-10.
-        tag.setRating(rating, 0, "igdb", True)
-    if game["release_date"]:
-        tag.setPremiered(game["release_date"])
-    tag.setPlaycount(int(game["play_count"] or 0))
-    tag.setDuration(int(game["playtime_seconds"] or 0))
-    if game["created_at"]:
-        tag.setDateAdded(game["created_at"])
-    if game["last_played"]:
-        tag.setLastPlayed(game["last_played"])
-    if game["trailer"]:
-        tag.setTrailer(game["trailer"])
+    if dialog:
+        # More Info items use Kodi's native game tag. This keeps DBType=game
+        # and the Game infolabels (Overview, Publisher, Developer, Platform,
+        # Genres and Year) correct without pretending the item is a video.
+        game_info = {
+            "title": game["name"],
+            "platform": game["platforms"] or "",
+            "genres": genres,
+            "publisher": game["publisher"] or "",
+            "developer": game["developer"] or "",
+            "overview": game["description"] or "",
+        }
+        if game["year"]:
+            game_info["year"] = int(game["year"])
+        item.setInfo("game", game_info)
+    else:
+        # Hub/list cards retain their established generic video tag so their
+        # existing artwork, spotlight and launch behavior remain unchanged.
+        tag = item.getVideoInfoTag()
+        tag.setTitle(game["name"])
+        tag.setSortTitle(game["sort_name"] or game["name"])
+        tag.setPlot(game["description"] or "")
+        if game["year"]:
+            tag.setYear(int(game["year"]))
+        if genres:
+            tag.setGenres(genres)
+        studios = []
+        for value in (game["developer"], game["publisher"]):
+            value = (value or "").strip()
+            if value and value.casefold() not in {studio.casefold() for studio in studios}:
+                studios.append(value)
+        if studios:
+            tag.setStudios(studios)
+        if rating is not None:
+            # IGDB ratings use a 0-100 scale; Kodi and Arctic Fuse expect 0-10.
+            tag.setRating(rating, 0, "igdb", True)
+        if game["release_date"]:
+            tag.setPremiered(game["release_date"])
+        tag.setPlaycount(int(game["play_count"] or 0))
+        tag.setDuration(int(game["playtime_seconds"] or 0))
+        if game["created_at"]:
+            tag.setDateAdded(game["created_at"])
+        if game["last_played"]:
+            tag.setLastPlayed(game["last_played"])
+        if game["trailer"]:
+            tag.setTrailer(game["trailer"])
     art = {
         "poster": game["cover"] or "",
         "thumb": game["icon"] or game["cover"] or "",
@@ -117,6 +132,7 @@ def build_game_listitem(game, path="", dialog=False):
     item.setProperty("game.storyline", game["storyline"] or "")
     item.setProperty("game.igdb_summary", game["igdb_summary"] or "")
     item.setProperty("game.genres", game["genres"] or "")
+    item.setProperty("game.trailer", game["trailer"] or "")
     item.setProperty("game.igdb_user_score", _score_100(game["community_score"]))
     item.setProperty("game.time_to_beat.main", _duration(game["time_to_beat_normally"]))
     item.setProperty("game.time_to_beat.extra", _duration(game["time_to_beat_hastily"]))
@@ -126,11 +142,6 @@ def build_game_listitem(game, path="", dialog=False):
     item.setProperty("game.related.year", url("related", game_id=game["id"], field="year"))
     item.setProperty("game.related.publisher", url("related", game_id=game["id"], field="publisher"))
     item.setProperty("game.related.genre", url("related", game_id=game["id"], field="genre"))
-    # The shared Arctic Fuse info line is enabled for the standard video
-    # connector. Set it only on the dialog item so Games hub cards retain
-    # their existing appliance presentation.
-    if dialog:
-        item.setProperty("DBType", "video")
     executable_available = bool(game["executable"] and os.path.isfile(os.path.expandvars(game["executable"])))
     item.setProperty("game.available", "true" if executable_available else "false")
     if not executable_available:
