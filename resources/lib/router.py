@@ -63,17 +63,18 @@ def build_game_listitem(game, path="", dialog=False):
         # More Info items use Kodi's native game tag. This keeps DBType=game
         # and the Game infolabels (Overview, Publisher, Developer, Platform,
         # Genres and Year) correct without pretending the item is a video.
-        game_info = {
-            "title": game["name"],
-            "platform": game["platforms"] or "",
-            "genres": genres,
-            "publisher": game["publisher"] or "",
-            "developer": game["developer"] or "",
-            "overview": game["description"] or "",
-        }
+        # Use the explicit InfoTagGame setters because Kodi 21's Dialog().info
+        # path can otherwise omit the overview when setInfo() is used.
+        game_tag = item.getGameInfoTag()
+        game_tag.setTitle(game["name"])
+        game_tag.setPlatform(game["platforms"] or "")
+        if genres:
+            game_tag.setGenres(genres)
+        game_tag.setPublisher(game["publisher"] or "")
+        game_tag.setDeveloper(game["developer"] or "")
+        game_tag.setOverview(game["description"] or "")
         if game["year"]:
-            game_info["year"] = int(game["year"])
-        item.setInfo("game", game_info)
+            game_tag.setYear(int(game["year"]))
     else:
         # Hub/list cards retain their established generic video tag so their
         # existing artwork, spotlight and launch behavior remain unchanged.
@@ -132,6 +133,10 @@ def build_game_listitem(game, path="", dialog=False):
     item.setProperty("game.storyline", game["storyline"] or "")
     item.setProperty("game.igdb_summary", game["igdb_summary"] or "")
     item.setProperty("game.genres", game["genres"] or "")
+    # Compatibility mirror for Kodi 21's Dialog().info skin infolabel path.
+    # The native InfoTagGame overview remains authoritative; this property is
+    # only used if that infolabel is empty in the dialog.
+    item.setProperty("game.description", game["description"] or "")
     item.setProperty("game.trailer", game["trailer"] or "")
     item.setProperty("game.igdb_user_score", _score_100(game["community_score"]))
     item.setProperty("game.time_to_beat.main", _duration(game["time_to_beat_normally"]))
