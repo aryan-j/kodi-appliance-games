@@ -27,6 +27,20 @@ Game records contain direct executable, argument and working-directory data.
 Artwork copied into the add-on profile remains owned by Kodi, so browsing and
 launching do not require an external library manager.
 
+## Metadata and artwork
+
+IGDB metadata and SteamGridDB artwork have independent refresh actions and
+failure domains. An IGDB refresh updates descriptive fields without changing
+artwork, executable details, favourites or play statistics. A SteamGridDB
+refresh updates only successfully downloaded artwork roles and persists the
+matched SteamGridDB game ID for stable future refreshes.
+
+IGDB fields include publisher, franchise, engine, release date, community
+rating, genres, platforms, game modes, player perspectives and time-to-beat
+estimates. List items expose these through `game.*` properties. Related-list
+plugin paths are exposed for games sharing the same release year, publisher or
+genre so a Games-specific More Info layout can render those widget rows.
+
 ## Building the companion
 
 Run the build script from PowerShell:

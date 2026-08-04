@@ -56,18 +56,20 @@ def _token():
 
 
 FIELDS = (
-    "id,name,summary,first_release_date,rating,"
+    "id,name,summary,storyline,first_release_date,rating,rating_count,updated_at,"
     "cover.image_id,artworks.image_id,screenshots.image_id,genres.name,platforms.name,"
+    "franchise.name,franchises.name,game_engines.name,game_modes.name,"
+    "player_perspectives.name,themes.name,"
     "videos.name,videos.video_id,"
     "involved_companies.developer,involved_companies.publisher,"
     "involved_companies.company.name"
 )
 
 
-def _query(body):
+def _query(body, endpoint="games"):
     client_id, token = _token()
     return _json_request(
-        "https://api.igdb.com/v4/games",
+        f"https://api.igdb.com/v4/{endpoint}",
         data=body,
         headers={
             "Accept": "application/json",
@@ -90,13 +92,36 @@ def get(igdb_id):
     return results[0] if results else None
 
 
+def get_time_to_beat(igdb_id):
+    results = _query(
+        "fields game_id,hastily,normally,completely,count,updated_at; "
+        f"where game_id = {int(igdb_id)}; limit 1;",
+        endpoint="game_time_to_beats",
+    )
+    return results[0] if results else {}
+
+
 def image_url(image_id, size):
     if not image_id:
         return ""
     return f"https://images.igdb.com/igdb/image/upload/t_{size}/{image_id}.jpg"
 
 
-def normalize(result):
+def _names(items):
+    seen = set()
+    values = []
+    for item in items or []:
+        if not isinstance(item, dict):
+            continue
+        name = (item.get("name") or "").strip()
+        key = name.casefold()
+        if name and key not in seen:
+            seen.add(key)
+            values.append(name)
+    return " / ".join(values)
+
+
+def normalize(result, time_to_beat=None):
     companies = result.get("involved_companies") or []
     developers = [
         entry.get("company", {}).get("name", "")
@@ -108,6 +133,10 @@ def normalize(result):
     ]
     release_timestamp = result.get("first_release_date")
     release_date = time.strftime("%Y-%m-%d", time.gmtime(release_timestamp)) if release_timestamp else ""
+    franchises = list(result.get("franchises") or [])
+    if result.get("franchise"):
+        franchises.insert(0, result["franchise"])
+    time_to_beat = time_to_beat or {}
     artworks = result.get("artworks") or []
     screenshots = result.get("screenshots") or []
     trailer_candidates = []
@@ -131,13 +160,25 @@ def normalize(result):
         "igdb_id": str(result["id"]),
         "name": result.get("name") or "Unknown game",
         "description": result.get("summary") or "",
+        "storyline": result.get("storyline") or "",
         "release_date": release_date,
         "year": int(release_date[:4]) if release_date else None,
         "community_score": result.get("rating"),
-        "genres": " / ".join(item.get("name", "") for item in result.get("genres") or [] if item.get("name")),
-        "platforms": " / ".join(item.get("name", "") for item in result.get("platforms") or [] if item.get("name")),
+        "community_score_count": int(result.get("rating_count") or 0),
+        "genres": _names(result.get("genres")),
+        "platforms": _names(result.get("platforms")),
+        "franchise": _names(franchises),
+        "engines": _names(result.get("game_engines")),
+        "game_modes": _names(result.get("game_modes")),
+        "player_perspectives": _names(result.get("player_perspectives")),
+        "themes": _names(result.get("themes")),
         "developer": " / ".join(filter(None, developers)),
         "publisher": " / ".join(filter(None, publishers)),
+        "time_to_beat_hastily": int(time_to_beat.get("hastily") or 0),
+        "time_to_beat_normally": int(time_to_beat.get("normally") or 0),
+        "time_to_beat_completely": int(time_to_beat.get("completely") or 0),
+        "time_to_beat_count": int(time_to_beat.get("count") or 0),
+        "igdb_updated_at": int(result.get("updated_at") or 0),
         "cover_url": image_url((result.get("cover") or {}).get("image_id"), "cover_big"),
         "background_url": image_url(
             (artworks[0] if artworks else {}).get("image_id"),
@@ -212,8 +253,8 @@ def _best_image(images, orientation="any"):
     return candidates[0][2] if candidates else None
 
 
-def steamgriddb_art(name):
-    game = steamgriddb_game(name)
+def steamgriddb_art(name, game_id=""):
+    game = {"id": int(game_id), "name": name} if str(game_id).isdigit() else steamgriddb_game(name)
     if not game:
         return {}
     game_id = int(game["id"])

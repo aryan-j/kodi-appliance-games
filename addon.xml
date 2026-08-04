@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="UTF-8" standalone="yes"?>
-<addon id="plugin.program.appliance.games" name="Kodi Appliance Games" version="0.3.1" provider-name="Aryan">
+<addon id="plugin.program.appliance.games" name="Kodi Appliance Games" version="0.4.0" provider-name="Aryan">
     <requires>
         <import addon="xbmc.python" version="3.0.0"/>
     </requires>
