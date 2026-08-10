@@ -374,6 +374,13 @@ def _refresh_steamgriddb_artwork(game_id):
     def destination_for(role, source_url, fallback_extension, suffix=""):
         extension = metadata.extension_from_url(source_url, fallback_extension)
         source_token = sha1(source_url.encode("utf-8")).hexdigest()[:12]
+        # Kodi caches non-16:9 artwork using ``imageres``.  The appliance's
+        # Steam hero is an ultra-wide 3840x1240 image, so the cache otherwise
+        # keeps the old 1280px-wide texture even after the source is refreshed.
+        # A distinct path lets the new cache-resolution policy take effect
+        # without mutating Kodi's texture database.
+        if role == "background" and not suffix:
+            suffix = "-imageres1080"
         return os.path.join(media_folder, f"{role}-{source_token}{suffix}{extension}")
 
     def stage_first(role, urls, fallback_extension, transform=None):
