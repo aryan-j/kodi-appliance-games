@@ -176,6 +176,14 @@ class MetadataTests(unittest.TestCase):
             "https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/123/en/header_2x.jpg",
         )
 
+    def test_sgdb_fallback_prefers_english_images_when_present(self):
+        images = [
+            {"url": "unlabeled.jpg", "language": "", "width": 600, "height": 900, "upvotes": 99},
+            {"url": "german.jpg", "language": "de", "width": 600, "height": 900, "upvotes": 100},
+            {"url": "english.jpg", "language": "en", "width": 600, "height": 900, "upvotes": 1},
+        ]
+        self.assertEqual(metadata._best_image(images, orientation="portrait")["url"], "english.jpg")
+
     def test_unverified_or_non_steam_details_use_community_art(self):
         for details in (
             {"id": 42, "verified": False, "types": ["steam"]},

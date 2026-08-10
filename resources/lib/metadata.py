@@ -286,7 +286,9 @@ def _steam_record(details):
     if not isinstance(records, (list, tuple)):
         records = []
     for record in records:
-        if isinstance(record, dict):
+        if isinstance(record, dict) and str(
+            record.get("platform") or record.get("platform_name") or "steam"
+        ).casefold() == "steam":
             return record
     return {}
 
@@ -448,11 +450,14 @@ def _best_image(
     if language:
         localized = [
             item for item in images
-            if not item.get("language")
-            or str(item.get("language")).casefold() == language.casefold()
+            if str(item.get("language") or "").casefold() == language.casefold()
         ]
         if localized:
             images = localized
+        else:
+            untagged = [item for item in images if not item.get("language")]
+            if untagged:
+                images = untagged
     if styles:
         approved = []
         for item in images:
