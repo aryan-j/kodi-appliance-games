@@ -75,10 +75,9 @@ class MetadataTests(unittest.TestCase):
         def response(path):
             if "dimensions=600x900" in path:
                 return [{"url": "cover.jpg", "width": 600, "height": 900, "upvotes": 1}]
-            if "dimensions=460x259" in path:
+            if "dimensions=460x215" in path:
                 return [
-                    {"url": "wide.jpg", "width": 1920, "height": 1080, "upvotes": 1},
-                    {"url": "too-wide.jpg", "width": 1920, "height": 620, "upvotes": 99},
+                    {"url": "header.jpg", "width": 460, "height": 215, "upvotes": 1},
                 ]
             if path.startswith("/heroes/"):
                 return [{"url": "hero.jpg", "width": 1920, "height": 620, "upvotes": 2}]
@@ -88,11 +87,28 @@ class MetadataTests(unittest.TestCase):
             with mock.patch.object(metadata, "_sgdb_request", side_effect=response):
                 result = metadata.steamgriddb_art("Renamed", "42")
         self.assertEqual(result["background"], "hero.jpg")
-        self.assertEqual(result["landscape"], "wide.jpg")
+        self.assertEqual(result["landscape"], "header.jpg")
+
+    def test_landscape_dimension_400_falls_back_to_supported_size(self):
+        def response(path):
+            if "dimensions=600x900" in path:
+                return []
+            if "dimensions=460x215" in path:
+                raise RuntimeError("HTTP 400")
+            if "dimensions=460x259" in path:
+                return [{"url": "fallback.jpg", "width": 460, "height": 259}]
+            if path.startswith("/heroes/"):
+                return []
+            return []
+
+        with mock.patch.object(metadata, "steamgriddb_game", side_effect=AssertionError("title search used")):
+            with mock.patch.object(metadata, "_sgdb_request", side_effect=response):
+                result = metadata.steamgriddb_art("Renamed", "42")
+        self.assertEqual(result["landscape"], "fallback.jpg")
 
     def test_landscape_filter_failure_preserves_other_artwork_selection(self):
         def response(path):
-            if "dimensions=460x259" in path:
+            if "dimensions=460x215" in path or "dimensions=460x259" in path:
                 raise RuntimeError("unsupported dimensions filter")
             if "dimensions=600x900" in path:
                 return [{"url": "cover.jpg", "width": 600, "height": 900}]

@@ -1,5 +1,6 @@
 import os
 import sys
+from hashlib import sha1
 from urllib.parse import parse_qs, urlencode
 
 import xbmc
@@ -278,6 +279,14 @@ def _refresh_game_surfaces(refresh_container=True):
         xbmc.executebuiltin("Container.Refresh")
 
 
+def _open_games_hub():
+    """Show the Games hub, rebuilding it when it is already active."""
+    if xbmc.getCondVisibility("Window.IsActive(1102)"):
+        xbmc.executebuiltin("ReplaceWindow(1102)")
+    else:
+        xbmc.executebuiltin("ActivateWindow(1102)")
+
+
 def locate(game_id):
     game = database.get_game(game_id)
     if not game:
@@ -364,7 +373,10 @@ def _refresh_steamgriddb_artwork(game_id):
         landscape_url = sgdb_art.get("landscape") or ""
         if landscape_url:
             extension = metadata.extension_from_url(landscape_url, ".jpg")
-            icon_destination = os.path.join(media_folder, f"landscape{extension}")
+            # Change the path when the selected source changes so Kodi's
+            # texture cache cannot keep displaying the previous landscape.
+            source_token = sha1(landscape_url.encode("utf-8")).hexdigest()[:12]
+            icon_destination = os.path.join(media_folder, f"landscape-{source_token}{extension}")
             icon_temporary = icon_destination + ".download"
             metadata.download(landscape_url, icon_temporary)
             staged["icon"] = (icon_temporary, icon_destination)
@@ -423,11 +435,10 @@ def add_game():
         xbmcgui.Dialog().ok("Games metadata", str(exc))
     xbmcplugin.endOfDirectory(HANDLE, succeeded=True)
     if added:
-        _refresh_game_surfaces(refresh_container=False)
         # The add route is a one-shot plugin action. Re-entering it with
-        # Container.Refresh would open the picker again, so activate the
-        # Games hub to rebuild its widget containers instead.
-        xbmc.executebuiltin("ActivateWindow(1102)")
+        # Container.Refresh would open the picker again; replace the active
+        # Games hub (or activate it from another window) instead.
+        _open_games_hub()
 
 
 def refresh_igdb(game_id):

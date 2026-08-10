@@ -278,14 +278,34 @@ def steamgriddb_art(name, game_id=""):
     portrait_grids = _sgdb_request(
         f"/grids/game/{game_id}?dimensions=600x900,342x482,660x930&types=static&nsfw=false&humor=false"
     )
-    try:
-        landscape_grids = _sgdb_request(
-            f"/grids/game/{game_id}?dimensions=460x259,600x338,342x192,660x371&types=static&nsfw=false&humor=false"
-        )
-    except Exception:
-        # A rejected/temporarily unavailable dimensions filter must not make
-        # the existing cover, hero, or logo refresh fail.
-        landscape_grids = []
+    # SteamGridDB accepts one dimensions value per request.  Passing a comma
+    # separated list returns HTTP 400, which previously caused this role to be
+    # silently skipped and left the old hero copied into ``landscape``.
+    landscape_grids = []
+    landscape_target_ratio = 460 / 215
+    for dimensions, target_ratio in (("460x215", 460 / 215), ("460x259", 16 / 9)):
+        try:
+            landscape_grids = _sgdb_request(
+                f"/grids/game/{game_id}?dimensions={dimensions}&types=static&nsfw=false&humor=false"
+            )
+        except Exception:
+            landscape_grids = []
+        if landscape_grids:
+            landscape_target_ratio = target_ratio
+            break
+    if not landscape_grids:
+        # Older or sparse games may not have either preferred size.  An
+        # unfiltered static-grid request still lets us select a usable image
+        # without reusing the hero/background role.
+        try:
+            landscape_grids = _sgdb_request(
+                f"/grids/game/{game_id}?types=static&nsfw=false&humor=false"
+            )
+            landscape_target_ratio = 16 / 9
+        except Exception:
+            # A rejected/temporarily unavailable landscape request must not
+            # make the existing cover, hero, or logo refresh fail.
+            landscape_grids = []
     heroes = _sgdb_request(f"/heroes/game/{game_id}{common}")
     logos = _sgdb_request(f"/logos/game/{game_id}{common}")
     selected = {
@@ -300,7 +320,7 @@ def steamgriddb_art(name, game_id=""):
     selected["landscape"] = _best_image(
         landscape_grids,
         orientation="landscape",
-        target_ratio=16 / 9,
+        target_ratio=landscape_target_ratio,
         excluded_urls={background_url},
         max_ratio_distance=0.18,
     )
