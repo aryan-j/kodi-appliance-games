@@ -211,7 +211,7 @@ def download(url, destination):
 
 
 def crop_landscape(source, destination):
-    """Center-crop an image to a deterministic 16:9 (1920x1080) output."""
+    """Center-crop an image to the nearest native-resolution 16:9 frame."""
     try:
         from PIL import Image
     except ImportError:
@@ -231,23 +231,27 @@ def crop_landscape(source, destination):
                 crop_height = max(1, round(width / target_ratio))
                 top = max(0, (height - crop_height) // 2)
                 box = (0, top, width, top + crop_height)
-            resampling = getattr(Image, "Resampling", Image)
-            cropped = image.crop(box).resize((1920, 1080), resampling.LANCZOS)
+            cropped = image.crop(box)
             extension = os.path.splitext(destination)[1].casefold()
-            if extension in {".jpg", ".jpeg"}:
+            image_format = (image.format or "").upper()
+            if image_format in {"JPG", "JPEG"}:
                 if cropped.mode not in {"RGB", "L"}:
                     cropped = cropped.convert("RGB")
                 image_format = "JPEG"
-            elif extension == ".png":
-                image_format = "PNG"
-            elif extension == ".webp":
-                image_format = "WEBP"
             else:
-                image_format = image.format or "PNG"
+                image_format = {
+                    ".jpg": "JPEG",
+                    ".jpeg": "JPEG",
+                    ".png": "PNG",
+                    ".webp": "WEBP",
+                }.get(extension, image_format or "PNG")
+                if image_format == "JPEG" and cropped.mode not in {"RGB", "L"}:
+                    cropped = cropped.convert("RGB")
             directory = os.path.dirname(destination)
             if directory:
                 os.makedirs(directory, exist_ok=True)
-            cropped.save(destination, format=image_format)
+            save_options = {"quality": 95} if image_format == "JPEG" else {}
+            cropped.save(destination, format=image_format, **save_options)
     except Exception:
         if not destination_existed and os.path.exists(destination):
             os.remove(destination)

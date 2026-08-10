@@ -87,7 +87,7 @@ class RouterArtworkTests(unittest.TestCase):
             finally:
                 router.metadata.PROFILE = previous_profile
 
-    def test_landscape_crop_outputs_1920x1080_and_preserves_failed_destination(self):
+    def test_landscape_crop_keeps_native_16_9_frame_and_preserves_failed_destination(self):
         from PIL import Image
 
         with tempfile.TemporaryDirectory() as folder:
@@ -96,7 +96,9 @@ class RouterArtworkTests(unittest.TestCase):
             Image.new("RGB", (460, 215), (20, 80, 140)).save(source)
             self.assertTrue(router.metadata.crop_landscape(source, destination))
             with Image.open(destination) as cropped:
-                self.assertEqual(cropped.size, (1920, 1080))
+                self.assertLess(cropped.width, 460)
+                self.assertEqual(cropped.height, 215)
+                self.assertAlmostEqual(cropped.width / cropped.height, 16 / 9, places=2)
             with open(destination, "wb") as stream:
                 stream.write(b"existing")
             self.assertFalse(router.metadata.crop_landscape(os.path.join(folder, "missing.jpg"), destination))
