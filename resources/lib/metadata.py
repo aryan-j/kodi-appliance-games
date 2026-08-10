@@ -379,9 +379,11 @@ def _steam_section_paths(metadata, section_names):
                 locale_keys.append((normalized, item))
         # Locale maps are authoritative. If English is present, do not let a
         # sibling alias or generic fallback reintroduce another language.
-        english_locales = [(key, item) for key, item in locale_keys if key in _STEAM_ENGLISH_LOCALES]
+        english_locales = [
+            (key, item) for key, item in locale_keys if normalize_locale(key) == "en"
+        ]
         for key, item in (english_locales or locale_keys):
-            collect(item, target, language="en" if key in _STEAM_ENGLISH_LOCALES else "non_en")
+            collect(item, target, language=normalize_locale(key) or "non_en")
         for key, item in value.items():
             normalized = str(key).casefold().replace("-", "_")
             if any(normalized == locale_key for locale_key, _item in locale_keys):
