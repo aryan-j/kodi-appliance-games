@@ -150,6 +150,27 @@ class MetadataTests(unittest.TestCase):
         self.assertEqual(candidates["background"][0], base + "library_hero_2x.jpg")
         self.assertEqual(candidates["landscape"][0], base + "header_2x.jpg")
 
+    def test_verified_steam_assets_do_not_append_community_fallback(self):
+        details = {
+            "verified": True,
+            "types": ["steam"],
+            "external_platform_data": {"steam": [{
+                "id": "123",
+                "metadata": {"library_logo": {"en": "logo.png"}},
+            }]},
+        }
+        with mock.patch.object(metadata, "_sgdb_game_details", return_value=details):
+            with mock.patch.object(metadata, "_sgdb_request", side_effect=lambda path: (
+                [{"url": "cover.jpg", "width": 600, "height": 900}]
+                if "dimensions=600x900" in path else
+                [{"url": "hero.jpg", "width": 1920, "height": 620}]
+                if path.startswith("/heroes/") else
+                []
+            )):
+                result = metadata.steamgriddb_art("Example", "42")
+        self.assertNotIn("cover_candidates", result)
+        self.assertEqual(result["logo_candidates"][0].rsplit("/", 1)[-1], "logo_2x.png")
+
     def test_steam_asset_url_normalizes_existing_store_item_path(self):
         self.assertEqual(
             metadata._steam_asset_url(
@@ -175,6 +196,41 @@ class MetadataTests(unittest.TestCase):
             metadata._steam_asset_candidates(details)["landscape"][0],
             "https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/123/en/header_2x.jpg",
         )
+
+    def test_steam_candidates_reject_wrong_language_aliases_and_asset_objects(self):
+        details = {
+            "verified": True,
+            "types": ["steam"],
+            "external_platform_data": {"steam": [{
+                "id": "123",
+                "metadata": {
+                    "library_logo": [
+                        {"language": "de", "url": "de/logo.png"},
+                        {"language": "en", "url": "en/logo.png"},
+                    ],
+                    "header": {"de": "de/header.jpg", "en": "en/header.jpg"},
+                    # The alias must not reintroduce a German path after the
+                    # English header map has been selected.
+                    "header_image": "de/header-alias.jpg",
+                },
+            }]},
+        }
+        candidates = metadata._steam_asset_candidates(details)
+        base = "https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/123/"
+        self.assertEqual(candidates["logo"][0], base + "en/logo_2x.png")
+        self.assertEqual(candidates["landscape"][0], base + "en/header_2x.jpg")
+        self.assertNotIn("de/header-alias.jpg", "".join(candidates["landscape"]))
+
+    def test_steam_candidates_leave_role_empty_when_only_non_english_asset_exists(self):
+        details = {
+            "verified": True,
+            "types": ["steam"],
+            "external_platform_data": {"steam": [{
+                "id": "123",
+                "metadata": {"library_logo": {"de": "de/logo.png"}},
+            }]},
+        }
+        self.assertNotIn("logo", metadata._steam_asset_candidates(details))
 
     def test_sgdb_fallback_prefers_english_images_when_present(self):
         images = [

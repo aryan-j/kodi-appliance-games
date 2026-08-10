@@ -13,6 +13,8 @@ ADDON = xbmcaddon.Addon()
 PROFILE = xbmcvfs.translatePath(ADDON.getAddonInfo("profile"))
 TOKEN_PATH = os.path.join(PROFILE, "igdb-token.json")
 STEAM_ASSET_BASE = "https://shared.akamai.steamstatic.com/store_item_assets/steam/apps"
+_STEAM_ENGLISH_LOCALES = {"en", "en_us", "en_gb", "english", "eng"}
+_STEAM_LOCALE_RE = re.compile(r"^[a-z]{2}(?:_[a-z]{2})?$")
 
 
 def _json_request(url, data=None, headers=None):
@@ -295,12 +297,36 @@ def _steam_record(details):
 
 def _steam_section_paths(metadata, section_names):
     """Return (explicit image2x paths, standard paths) for an asset section."""
-    explicit, standard = [], []
-    seen = set()
+    entries = []
+    seen = {}
     if not isinstance(metadata, dict):
-        return explicit, standard
+        return [], []
 
-    def add(path, target):
+    def normalize_locale(value):
+        if not isinstance(value, str):
+            return ""
+        value = value.strip().casefold().replace("-", "_")
+        if value in _STEAM_ENGLISH_LOCALES or value.startswith("en_"):
+            return "en"
+        if _STEAM_LOCALE_RE.match(value):
+            return "non_en"
+        return ""
+
+    def path_locale(path):
+        parsed_path = urlparse(path).path
+        for segment in parsed_path.strip("/").split("/"):
+            locale = normalize_locale(segment)
+            if locale:
+                return locale
+        return ""
+
+    def looks_like_asset(value):
+        if isinstance(value, str):
+            parsed_path = urlparse(value.strip()).path
+            return bool(os.path.splitext(parsed_path)[1] or "/" in parsed_path)
+        return isinstance(value, (dict, list, tuple))
+
+    def add(path, target, language=""):
         if not isinstance(path, str):
             return
         path = path.strip()
@@ -309,13 +335,23 @@ def _steam_section_paths(metadata, section_names):
         parsed_path = urlparse(path).path
         if not path or (not os.path.splitext(parsed_path)[1] and "/" not in parsed_path):
             return
-        if path not in seen:
-            seen.add(path)
-            target.append(path)
+        language = language or path_locale(path)
+        item = (path, target == "explicit", language)
+        index = seen.get(path)
+        if index is None:
+            seen[path] = len(entries)
+            entries.append(item)
+            return
+        old_path, old_explicit, old_language = entries[index]
+        entries[index] = (
+            old_path,
+            old_explicit or item[1],
+            "en" if "en" in {old_language, language} else (old_language or language),
+        )
 
-    def collect(value, target, language=False):
+    def collect(value, target="standard", language=""):
         if isinstance(value, str):
-            add(value, target)
+            add(value, target, language)
             return
         if isinstance(value, (list, tuple)):
             for item in value:
@@ -323,44 +359,68 @@ def _steam_section_paths(metadata, section_names):
             return
         if not isinstance(value, dict):
             return
-        locale_keys = [
-            (str(key).casefold().replace("-", "_"), item)
-            for key, item in value.items()
-            if re.match(r"^[a-z]{2}(?:_[a-z]{2})?$", str(key).casefold().replace("-", "_"))
-        ]
-        english_locales = [
-            (key, item) for key, item in locale_keys
-            if key in {"en", "en_us", "en_gb"}
-        ]
-        if english_locales:
-            for _key, item in english_locales:
-                collect(item, target, language=True)
-            return
+        object_language = language
+        for key in ("language", "lang", "locale"):
+            if key in value:
+                object_language = normalize_locale(value[key]) or object_language
+                break
+        locale_keys = []
         for key, item in value.items():
             normalized = str(key).casefold().replace("-", "_")
+            if (
+                (
+                    normalized in _STEAM_ENGLISH_LOCALES
+                    or normalized.startswith("en_")
+                    or _STEAM_LOCALE_RE.match(normalized)
+                )
+                and normalized not in {"id", "url"}
+                and looks_like_asset(item)
+            ):
+                locale_keys.append((normalized, item))
+        # Locale maps are authoritative. If English is present, do not let a
+        # sibling alias or generic fallback reintroduce another language.
+        english_locales = [(key, item) for key, item in locale_keys if key in _STEAM_ENGLISH_LOCALES]
+        for key, item in (english_locales or locale_keys):
+            collect(item, target, language="en" if key in _STEAM_ENGLISH_LOCALES else "non_en")
+        for key, item in value.items():
+            normalized = str(key).casefold().replace("-", "_")
+            if any(normalized == locale_key for locale_key, _item in locale_keys):
+                continue
+            if normalized in {"language", "lang", "locale"}:
+                continue
             is_high = (
                 "image2x" in normalized
                 or "image_2x" in normalized
                 or normalized in {"2x", "full2x", "full_2x", "high_res", "highres"}
                 or ("2x" in normalized and ("en" in normalized or "english" in normalized))
             )
-            is_english = normalized in {"en", "en_us", "english", "eng"} or normalized.startswith("en_")
             if is_high:
-                collect(item, explicit, language=is_english or language)
-            elif is_english or normalized in {
+                collect(item, "explicit", language=object_language)
+            elif normalized in {
                 "image", "full", "path", "url", "standard", "original", "asset"
             }:
-                collect(item, target, language=is_english or language)
+                collect(item, target, language=object_language)
             elif isinstance(item, (dict, list, tuple)):
                 # Preserve nested platform-data wrappers without treating
                 # their labels as paths.
-                collect(item, target, language=language)
+                collect(item, target, language=object_language)
 
     for section in section_names:
         value = metadata.get(section)
         if value in (None, ""):
             continue
-        collect(value, standard)
+        collect(value)
+
+    # An explicit English asset is the only acceptable localized Steam asset.
+    # Untagged paths are allowed as the platform's default only when no
+    # explicit English path exists; known non-English paths never qualify.
+    has_english = any(language == "en" for _path, _explicit, language in entries)
+    filtered = [
+        item for item in entries
+        if item[2] == "en" or (not has_english and not item[2])
+    ]
+    explicit = [path for path, is_explicit, _language in filtered if is_explicit]
+    standard = [path for path, is_explicit, _language in filtered if not is_explicit]
     return explicit, standard
 
 
@@ -549,14 +609,11 @@ def steamgriddb_art(name, game_id=""):
         "game_name": game.get("name") or name,
         **{key: (value or {}).get("url", "") for key, value in selected.items()},
     }
-    # SGDB remains the source of truth for resolving the game and for all
-    # community fallbacks.  Steam originals are opt-in only for a verified
-    # Steam match with usable platform data; each role retains its SGDB URL as
-    # the final candidate.
+    # SGDB remains the source of truth for resolving the game and for
+    # community-only roles. A verified Steam English asset is authoritative;
+    # do not silently fall back to a different-language/community image if its
+    # download fails, because that would reintroduce the wrong logo.
     for role, candidates in _steam_asset_candidates(details).items():
-        community_url = community.get(role) or ""
-        if community_url and community_url not in candidates:
-            candidates = [*candidates, community_url]
         community[f"{role}_candidates"] = candidates
         community[role] = candidates[0]
     return community

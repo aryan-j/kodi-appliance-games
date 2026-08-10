@@ -16,6 +16,13 @@ from resources.lib import router
 
 
 class RouterArtworkTests(unittest.TestCase):
+    def test_refresh_surfaces_never_reloads_skin(self):
+        with mock.patch.object(router.xbmc, "getCondVisibility", return_value=True, create=True):
+            with mock.patch.object(router.xbmc, "executebuiltin", create=True) as execute:
+                router._refresh_game_surfaces(reload_skin=True)
+        self.assertEqual(execute.call_args_list, [mock.call("ReplaceWindow(1102)")])
+        self.assertNotIn("ReloadSkin", " ".join(call.args[0] for call in execute.call_args_list))
+
     def test_download_retries_ordered_candidates_and_preserves_failed_role(self):
         with tempfile.TemporaryDirectory() as profile:
             previous_profile = router.metadata.PROFILE
@@ -57,6 +64,8 @@ class RouterArtworkTests(unittest.TestCase):
                 self.assertIn("cover", committed)
                 self.assertIn("icon", committed)
                 self.assertNotIn("background", committed)
+                self.assertRegex(os.path.basename(committed["cover"]), r"^cover-[0-9a-f]{12}\.jpg$")
+                self.assertRegex(os.path.basename(committed["icon"]), r"^icon-[0-9a-f]{12}\.jpg$")
                 self.assertEqual(result, artwork)
                 self.assertFalse(any(name.endswith(".download") for name in os.listdir(os.path.join(profile, "media", "g1"))))
             finally:

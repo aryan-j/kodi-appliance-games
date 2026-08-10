@@ -1,5 +1,6 @@
 import os
 import sys
+import tempfile
 from hashlib import sha1
 from urllib.parse import parse_qs, urlencode
 
@@ -268,11 +269,13 @@ def set_favorite(game_id, favorite):
 
 
 def _refresh_game_surfaces(refresh_container=True, reload_skin=False):
-    """Refresh the current listing or Games hub, optionally reloading art."""
-    if reload_skin:
-        # Artwork and metadata are explicit user actions. Reloading here makes
-        # the already-running skin pick up the new art without a Kodi restart.
-        xbmc.executebuiltin("ReloadSkin")
+    """Refresh the current listing or Games hub without reloading the skin.
+
+    ``reload_skin`` is retained for callers from older deployed versions, but
+    deliberately ignored. A synchronous ReloadSkin from a context-menu action
+    can race Kodi's modal closing animation and take down the GUI; unique
+    artwork paths below make a container/widget refresh sufficient.
+    """
     if not refresh_container:
         return
     if xbmc.getCondVisibility("Window.IsActive(1102)"):
@@ -285,7 +288,6 @@ def _refresh_game_surfaces(refresh_container=True, reload_skin=False):
 
 def _open_games_hub():
     """Show the Games hub, rebuilding it when it is already active."""
-    xbmc.executebuiltin("ReloadSkin")
     if xbmc.getCondVisibility("Window.IsActive(1102)"):
         xbmc.executebuiltin("ReplaceWindow(1102)")
     else:
@@ -369,12 +371,22 @@ def _refresh_steamgriddb_artwork(game_id):
             values.insert(0, primary)
         return [value for value in values if value]
 
-    def stage_first(role, urls, fallback_extension, destination):
+    def destination_for(role, source_url, fallback_extension):
+        extension = metadata.extension_from_url(source_url, fallback_extension)
+        source_token = sha1(source_url.encode("utf-8")).hexdigest()[:12]
+        return os.path.join(media_folder, f"{role}-{source_token}{extension}")
+
+    def stage_first(role, urls, fallback_extension):
         for source_url in urls:
-            extension = metadata.extension_from_url(source_url, fallback_extension)
-            temporary = destination + ".download"
+            destination = destination_for(role, source_url, fallback_extension)
+            descriptor, temporary = tempfile.mkstemp(
+                prefix=f".{role}-", suffix=".download", dir=media_folder
+            )
+            os.close(descriptor)
             try:
                 metadata.download(source_url, temporary)
+                if not os.path.isfile(temporary) or os.path.getsize(temporary) <= 0:
+                    raise OSError("download produced no data")
                 staged[role] = (temporary, destination, source_url)
                 return source_url
             except Exception:
@@ -391,14 +403,9 @@ def _refresh_steamgriddb_artwork(game_id):
             urls = candidates_for(role)
             if not urls:
                 continue
-            # Keep a stable destination per role. If an earlier run used a
-            # different extension, the old file remains untouched until the
-            # new download has completed and is committed below.
-            destination = os.path.join(
-                media_folder,
-                f"{role}{metadata.extension_from_url(urls[0], fallback_extension)}",
-            )
-            stage_first(role, urls, fallback_extension, destination)
+            # Hashing each source into the destination avoids Kodi's texture
+            # cache returning an older image after a successful refresh.
+            stage_first(role, urls, fallback_extension)
         # Use a separate near-16:9 SteamGridDB grid for widget landscape art.
         # Do not copy the hero/background: it is a different role and often a
         # very wide header. If no suitable grid was returned, keep the prior
@@ -409,10 +416,7 @@ def _refresh_steamgriddb_artwork(game_id):
             # Change the path when the selected source changes so Kodi's
             # texture cache cannot keep displaying the previous landscape.
             for candidate in landscape_urls:
-                extension = metadata.extension_from_url(candidate, ".jpg")
-                source_token = sha1(candidate.encode("utf-8")).hexdigest()[:12]
-                icon_destination = os.path.join(media_folder, f"landscape-{source_token}{extension}")
-                if stage_first("icon", [candidate], ".jpg", icon_destination):
+                if stage_first("icon", [candidate], ".jpg"):
                     break
         artwork = {}
         for role, (temporary, destination, _source_url) in staged.items():
@@ -488,7 +492,7 @@ def refresh_igdb(game_id):
         if result:
             _save_igdb_metadata(game_id, "", result)
             xbmcgui.Dialog().notification("Games", "IGDB metadata refreshed")
-            _refresh_game_surfaces(reload_skin=True)
+            _refresh_game_surfaces()
     except Exception as exc:
         xbmcgui.Dialog().ok("Games metadata", str(exc))
 
@@ -500,7 +504,7 @@ def refresh_artwork(game_id):
             "Games",
             f"SteamGridDB artwork refreshed · {result.get('game_name', '')}",
         )
-        _refresh_game_surfaces(reload_skin=True)
+        _refresh_game_surfaces()
     except Exception as exc:
         xbmcgui.Dialog().ok("Games artwork", str(exc))
 
