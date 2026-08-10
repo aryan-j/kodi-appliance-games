@@ -1,5 +1,6 @@
 import json
 import os
+import re
 import time
 from urllib.parse import quote, urlencode, urlparse
 from urllib.request import Request, urlopen
@@ -11,6 +12,7 @@ import xbmcvfs
 ADDON = xbmcaddon.Addon()
 PROFILE = xbmcvfs.translatePath(ADDON.getAddonInfo("profile"))
 TOKEN_PATH = os.path.join(PROFILE, "igdb-token.json")
+STEAM_ASSET_BASE = "https://shared.akamai.steamstatic.com/store_item_assets/steam/apps"
 
 
 def _json_request(url, data=None, headers=None):
@@ -234,10 +236,201 @@ def _normalized_title(value):
 def steamgriddb_game(name):
     results = _sgdb_request(f"/search/autocomplete/{quote(name)}")
     wanted = _normalized_title(name)
+    # SGDB is still the resolver for community artwork.  Prefer its verified
+    # Steam entry when one is available so the optional Steam originals are
+    # tied to a trustworthy app id, but retain the existing community fallback
+    # for non-Steam or unverified games.
+    verified_steam = [result for result in results if _is_verified_steam_game(result)]
+    for result in verified_steam:
+        if _normalized_title(result.get("name", "")) == wanted:
+            return result
     for result in results:
         if _normalized_title(result.get("name", "")) == wanted:
             return result
-    return results[0] if results else None
+    return verified_steam[0] if verified_steam else (results[0] if results else None)
+
+
+def _is_verified_steam_game(game):
+    if not isinstance(game, dict) or not game.get("verified"):
+        return False
+    types = game.get("types") or ()
+    if isinstance(types, str):
+        types = (types,)
+    return "steam" in {str(value).casefold() for value in types}
+
+
+def _sgdb_game_details(game_id):
+    try:
+        details = _sgdb_request(f"/games/id/{int(game_id)}?platformdata=steam")
+    except Exception:
+        return {}
+    if isinstance(details, list):
+        details = details[0] if details and isinstance(details[0], dict) else {}
+    if isinstance(details, dict) and isinstance(details.get("data"), dict):
+        details = details["data"]
+    return details if isinstance(details, dict) else {}
+
+
+def _steam_record(details):
+    if not _is_verified_steam_game(details):
+        return {}
+    external = (
+        details.get("external_platform_data")
+        or details.get("platform_data")
+        or details.get("platformdata")
+        or {}
+    )
+    records = external.get("steam") if isinstance(external, dict) else external
+    if isinstance(records, dict):
+        records = [records]
+    if not isinstance(records, (list, tuple)):
+        records = []
+    for record in records:
+        if isinstance(record, dict):
+            return record
+    return {}
+
+
+def _steam_section_paths(metadata, section_names):
+    """Return (explicit image2x paths, standard paths) for an asset section."""
+    explicit, standard = [], []
+    seen = set()
+    if not isinstance(metadata, dict):
+        return explicit, standard
+
+    def add(path, target):
+        if not isinstance(path, str):
+            return
+        path = path.strip()
+        # Platform data sometimes includes bare locale markers such as
+        # ``header_image: en``. They are not downloadable asset paths.
+        parsed_path = urlparse(path).path
+        if not path or (not os.path.splitext(parsed_path)[1] and "/" not in parsed_path):
+            return
+        if path not in seen:
+            seen.add(path)
+            target.append(path)
+
+    def collect(value, target, language=False):
+        if isinstance(value, str):
+            add(value, target)
+            return
+        if isinstance(value, (list, tuple)):
+            for item in value:
+                collect(item, target, language=language)
+            return
+        if not isinstance(value, dict):
+            return
+        locale_keys = [
+            (str(key).casefold().replace("-", "_"), item)
+            for key, item in value.items()
+            if re.match(r"^[a-z]{2}(?:_[a-z]{2})?$", str(key).casefold().replace("-", "_"))
+        ]
+        english_locales = [
+            (key, item) for key, item in locale_keys
+            if key in {"en", "en_us", "en_gb"}
+        ]
+        if english_locales:
+            for _key, item in english_locales:
+                collect(item, target, language=True)
+            return
+        for key, item in value.items():
+            normalized = str(key).casefold().replace("-", "_")
+            is_high = (
+                "image2x" in normalized
+                or "image_2x" in normalized
+                or normalized in {"2x", "full2x", "full_2x", "high_res", "highres"}
+                or ("2x" in normalized and ("en" in normalized or "english" in normalized))
+            )
+            is_english = normalized in {"en", "en_us", "english", "eng"} or normalized.startswith("en_")
+            if is_high:
+                collect(item, explicit, language=is_english or language)
+            elif is_english or normalized in {
+                "image", "full", "path", "url", "standard", "original", "asset"
+            }:
+                collect(item, target, language=is_english or language)
+            elif isinstance(item, (dict, list, tuple)):
+                # Preserve nested platform-data wrappers without treating
+                # their labels as paths.
+                collect(item, target, language=language)
+
+    for section in section_names:
+        value = metadata.get(section)
+        if value in (None, ""):
+            continue
+        collect(value, standard)
+    return explicit, standard
+
+
+def _steam_2x_sibling(path):
+    root, extension = os.path.splitext(path)
+    if not extension or root.casefold().endswith("_2x"):
+        return path
+    return f"{root}_2x{extension}"
+
+
+def _steam_asset_url(app_id, path):
+    """Build a Steam CDN URL while retaining nested/hash asset paths."""
+    if not isinstance(path, str) or not path.strip():
+        return ""
+    path = path.strip()
+    parsed = urlparse(path)
+    if parsed.scheme in {"http", "https"}:
+        marker = "/store_item_assets/steam/apps/"
+        if marker not in parsed.path:
+            return path
+        path = parsed.path.split(marker, 1)[1]
+    path = path.lstrip("/")
+    marker = "store_item_assets/steam/apps/"
+    if path.startswith(marker):
+        path = path[len(marker):]
+    if path.startswith(f"{int(app_id)}/"):
+        path = path[len(str(int(app_id))) + 1:]
+    if not path:
+        return ""
+    return f"{STEAM_ASSET_BASE}/{int(app_id)}/{quote(path, safe='/._-')}"
+
+
+def _steam_asset_candidates(details):
+    """Return ordered Steam-original candidates, or {} for an unsafe match."""
+    record = _steam_record(details)
+    if not record:
+        return {}
+    app_id = record.get("id") or record.get("appid") or record.get("app_id") or record.get("steam_appid")
+    try:
+        app_id = int(str(app_id).strip())
+    except (TypeError, ValueError):
+        return {}
+    metadata = (
+        record.get("metadata")
+        or record.get("assets")
+        or record.get("images")
+        or record.get("artwork")
+        or record.get("data")
+        or record
+    )
+    sections = {
+        "cover": ("library_capsule", "library_capsule_full"),
+        "background": ("library_hero", "library_hero_full"),
+        "logo": ("library_logo", "library_logo_full", "logo"),
+        "landscape": ("header", "header_image", "header_image_full"),
+    }
+    candidates = {}
+    for role, section_names in sections.items():
+        explicit, standard = _steam_section_paths(metadata, section_names)
+        ordered = []
+        for path in explicit:
+            url = _steam_asset_url(app_id, path)
+            if url and url not in ordered:
+                ordered.append(url)
+        for path in standard:
+            for candidate in (_steam_2x_sibling(path), path):
+                url = _steam_asset_url(app_id, candidate)
+                if url and url not in ordered:
+                    ordered.append(url)
+        if ordered:
+            candidates[role] = ordered
+    return candidates
 
 
 def _best_image(
@@ -246,9 +439,30 @@ def _best_image(
     target_ratio=None,
     excluded_urls=(),
     max_ratio_distance=None,
+    language="en",
+    styles=(),
 ):
     candidates = []
     excluded_urls = set(excluded_urls)
+    images = list(images or [])
+    if language:
+        localized = [
+            item for item in images
+            if not item.get("language")
+            or str(item.get("language")).casefold() == language.casefold()
+        ]
+        if localized:
+            images = localized
+    if styles:
+        approved = []
+        for item in images:
+            value = item.get("style") or item.get("styles") or ()
+            if isinstance(value, str):
+                value = (value,)
+            if {str(style).casefold() for style in value} & {style.casefold() for style in styles}:
+                approved.append(item)
+        if approved:
+            images = approved
     for item in images:
         width, height = int(item.get("width") or 0), int(item.get("height") or 0)
         image_url = item.get("url") or ""
@@ -274,6 +488,7 @@ def steamgriddb_art(name, game_id=""):
     if not game:
         return {}
     game_id = int(game["id"])
+    details = _sgdb_game_details(game_id)
     common = "?types=static&nsfw=false&humor=false"
     portrait_grids = _sgdb_request(
         f"/grids/game/{game_id}?dimensions=600x900,342x482,660x930&types=static&nsfw=false&humor=false"
@@ -311,7 +526,7 @@ def steamgriddb_art(name, game_id=""):
     selected = {
         "cover": _best_image(portrait_grids, orientation="portrait"),
         "background": _best_image(heroes),
-        "logo": _best_image(logos),
+        "logo": _best_image(logos, styles={"official"}),
     }
     background_url = (selected["background"] or {}).get("url", "")
     # Prefer a separate near-16:9 grid for the widget landscape role. If the
@@ -324,11 +539,22 @@ def steamgriddb_art(name, game_id=""):
         excluded_urls={background_url},
         max_ratio_distance=0.18,
     )
-    return {
+    community = {
         "game_id": str(game_id),
         "game_name": game.get("name") or name,
         **{key: (value or {}).get("url", "") for key, value in selected.items()},
     }
+    # SGDB remains the source of truth for resolving the game and for all
+    # community fallbacks.  Steam originals are opt-in only for a verified
+    # Steam match with usable platform data; each role retains its SGDB URL as
+    # the final candidate.
+    for role, candidates in _steam_asset_candidates(details).items():
+        community_url = community.get(role) or ""
+        if community_url and community_url not in candidates:
+            candidates = [*candidates, community_url]
+        community[f"{role}_candidates"] = candidates
+        community[role] = candidates[0]
+    return community
 
 
 def extension_from_url(url, fallback=".png"):

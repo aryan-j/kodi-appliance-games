@@ -357,40 +357,69 @@ def _refresh_steamgriddb_artwork(game_id):
         raise RuntimeError("No SteamGridDB match found")
     os.makedirs(media_folder, exist_ok=True)
     staged = {}
+
+    def candidates_for(role):
+        values = sgdb_art.get(f"{role}_candidates") or []
+        if isinstance(values, str):
+            values = [values]
+        else:
+            values = list(values)
+        primary = sgdb_art.get(role) or ""
+        if primary and primary not in values:
+            values.insert(0, primary)
+        return [value for value in values if value]
+
+    def stage_first(role, urls, fallback_extension, destination):
+        for source_url in urls:
+            extension = metadata.extension_from_url(source_url, fallback_extension)
+            temporary = destination + ".download"
+            try:
+                metadata.download(source_url, temporary)
+                staged[role] = (temporary, destination, source_url)
+                return source_url
+            except Exception:
+                if os.path.exists(temporary):
+                    os.remove(temporary)
+        return ""
+
     try:
         for role, fallback_extension in (
             ("cover", ".jpg"),
             ("background", ".jpg"),
             ("logo", ".png"),
         ):
-            source_url = sgdb_art.get(role) or ""
-            if not source_url:
+            urls = candidates_for(role)
+            if not urls:
                 continue
-            extension = metadata.extension_from_url(source_url, fallback_extension)
-            destination = os.path.join(media_folder, f"{role}{extension}")
-            temporary = destination + ".download"
-            metadata.download(source_url, temporary)
-            staged[role] = (temporary, destination)
+            # Keep a stable destination per role. If an earlier run used a
+            # different extension, the old file remains untouched until the
+            # new download has completed and is committed below.
+            destination = os.path.join(
+                media_folder,
+                f"{role}{metadata.extension_from_url(urls[0], fallback_extension)}",
+            )
+            stage_first(role, urls, fallback_extension, destination)
         # Use a separate near-16:9 SteamGridDB grid for widget landscape art.
         # Do not copy the hero/background: it is a different role and often a
         # very wide header. If no suitable grid was returned, keep the prior
         # icon/landscape artwork untouched.
-        landscape_url = sgdb_art.get("landscape") or ""
-        if landscape_url:
-            extension = metadata.extension_from_url(landscape_url, ".jpg")
+        landscape_urls = candidates_for("landscape")
+        if landscape_urls:
+            landscape_url = landscape_urls[0]
             # Change the path when the selected source changes so Kodi's
             # texture cache cannot keep displaying the previous landscape.
-            source_token = sha1(landscape_url.encode("utf-8")).hexdigest()[:12]
-            icon_destination = os.path.join(media_folder, f"landscape-{source_token}{extension}")
-            icon_temporary = icon_destination + ".download"
-            metadata.download(landscape_url, icon_temporary)
-            staged["icon"] = (icon_temporary, icon_destination)
+            for candidate in landscape_urls:
+                extension = metadata.extension_from_url(candidate, ".jpg")
+                source_token = sha1(candidate.encode("utf-8")).hexdigest()[:12]
+                icon_destination = os.path.join(media_folder, f"landscape-{source_token}{extension}")
+                if stage_first("icon", [candidate], ".jpg", icon_destination):
+                    break
         artwork = {}
-        for role, (temporary, destination) in staged.items():
+        for role, (temporary, destination, _source_url) in staged.items():
             os.replace(temporary, destination)
             artwork[role] = destination
     finally:
-        for temporary, _destination in staged.values():
+        for temporary, _destination, _source_url in staged.values():
             if os.path.exists(temporary):
                 os.remove(temporary)
     database.update_artwork(game_id, artwork, sgdb_art.get("game_id"))

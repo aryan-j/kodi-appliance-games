@@ -123,6 +123,76 @@ class MetadataTests(unittest.TestCase):
         self.assertEqual(result["background"], "hero.jpg")
         self.assertEqual(result["landscape"], "")
 
+    def test_verified_steam_candidates_prefer_explicit_english_image2x(self):
+        details = {
+            "id": 42,
+            "verified": True,
+            "types": ["steam"],
+            "external_platform_data": {
+                "steam": [{
+                    "id": "123",
+                    "metadata": {
+                        "library_capsule": {"en": {
+                            "image": "library_600x900.jpg",
+                            "image2x": "library_600x900_2x.jpg",
+                        }},
+                        "library_hero": {"en": "library_hero.jpg"},
+                        "library_logo": {"en": "library_logo.png"},
+                        "header": {"en": "header.jpg"},
+                    },
+                }],
+            },
+        }
+        candidates = metadata._steam_asset_candidates(details)
+        base = "https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/123/"
+        self.assertEqual(candidates["cover"][0], base + "library_600x900_2x.jpg")
+        self.assertEqual(candidates["cover"][1], base + "library_600x900.jpg")
+        self.assertEqual(candidates["background"][0], base + "library_hero_2x.jpg")
+        self.assertEqual(candidates["landscape"][0], base + "header_2x.jpg")
+
+    def test_steam_asset_url_normalizes_existing_store_item_path(self):
+        self.assertEqual(
+            metadata._steam_asset_url(
+                123,
+                "https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/123/header.jpg",
+            ),
+            "https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/123/header.jpg",
+        )
+
+    def test_steam_candidates_ignore_non_english_when_english_exists(self):
+        details = {
+            "verified": True,
+            "types": ["steam"],
+            "external_platform_data": {"steam": [{
+                "id": "123",
+                "metadata": {"header": {
+                    "de": "de/header.jpg",
+                    "en": "en/header.jpg",
+                }},
+            }]},
+        }
+        self.assertEqual(
+            metadata._steam_asset_candidates(details)["landscape"][0],
+            "https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/123/en/header_2x.jpg",
+        )
+
+    def test_unverified_or_non_steam_details_use_community_art(self):
+        for details in (
+            {"id": 42, "verified": False, "types": ["steam"]},
+            {"id": 42, "verified": True, "types": ["gog"]},
+        ):
+            with mock.patch.object(metadata, "_sgdb_game_details", return_value=details):
+                with mock.patch.object(metadata, "_sgdb_request", side_effect=lambda path: (
+                    [{"url": "cover.jpg", "width": 600, "height": 900}]
+                    if "dimensions=600x900" in path else
+                    [{"url": "hero.jpg", "width": 1920, "height": 620}]
+                    if path.startswith("/heroes/") else []
+                )):
+                    result = metadata.steamgriddb_art("Example", "42")
+            self.assertEqual(result["cover"], "cover.jpg")
+            self.assertEqual(result["background"], "hero.jpg")
+            self.assertNotIn("cover_candidates", result)
+
 
 class DatabaseTests(unittest.TestCase):
     def setUp(self):
