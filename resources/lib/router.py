@@ -376,22 +376,36 @@ def _refresh_steamgriddb_artwork(game_id):
         source_token = sha1(source_url.encode("utf-8")).hexdigest()[:12]
         return os.path.join(media_folder, f"{role}-{source_token}{extension}")
 
-    def stage_first(role, urls, fallback_extension):
+    def stage_first(role, urls, fallback_extension, transform=None):
         for source_url in urls:
             destination = destination_for(role, source_url, fallback_extension)
             descriptor, temporary = tempfile.mkstemp(
                 prefix=f".{role}-", suffix=".download", dir=media_folder
             )
             os.close(descriptor)
+            transformed = ""
             try:
                 metadata.download(source_url, temporary)
                 if not os.path.isfile(temporary) or os.path.getsize(temporary) <= 0:
                     raise OSError("download produced no data")
+                if transform:
+                    extension = metadata.extension_from_url(source_url, fallback_extension)
+                    descriptor, transformed = tempfile.mkstemp(
+                        prefix=f".{role}-crop-", suffix=extension, dir=media_folder
+                    )
+                    os.close(descriptor)
+                    if not transform(temporary, transformed):
+                        raise OSError("artwork transform failed")
+                    if not os.path.isfile(transformed) or os.path.getsize(transformed) <= 0:
+                        raise OSError("artwork transform produced no data")
+                    os.remove(temporary)
+                    temporary = transformed
                 staged[role] = (temporary, destination, source_url)
                 return source_url
             except Exception:
-                if os.path.exists(temporary):
-                    os.remove(temporary)
+                for path in (temporary, transformed):
+                    if os.path.exists(path):
+                        os.remove(path)
         return ""
 
     try:
@@ -412,12 +426,9 @@ def _refresh_steamgriddb_artwork(game_id):
         # icon/landscape artwork untouched.
         landscape_urls = candidates_for("landscape")
         if landscape_urls:
-            landscape_url = landscape_urls[0]
             # Change the path when the selected source changes so Kodi's
             # texture cache cannot keep displaying the previous landscape.
-            for candidate in landscape_urls:
-                if stage_first("icon", [candidate], ".jpg"):
-                    break
+            stage_first("icon", landscape_urls, ".jpg", transform=metadata.crop_landscape)
         artwork = {}
         for role, (temporary, destination, _source_url) in staged.items():
             os.replace(temporary, destination)

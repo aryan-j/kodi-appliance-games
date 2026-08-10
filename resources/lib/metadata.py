@@ -210,6 +210,51 @@ def download(url, destination):
     return destination
 
 
+def crop_landscape(source, destination):
+    """Center-crop an image to a deterministic 16:9 (1920x1080) output."""
+    try:
+        from PIL import Image
+    except ImportError:
+        return False
+    destination_existed = os.path.exists(destination)
+    try:
+        with Image.open(source) as image:
+            width, height = image.size
+            if not width or not height:
+                return False
+            target_ratio = 16 / 9
+            if width / height > target_ratio:
+                crop_width = max(1, round(height * target_ratio))
+                left = max(0, (width - crop_width) // 2)
+                box = (left, 0, left + crop_width, height)
+            else:
+                crop_height = max(1, round(width / target_ratio))
+                top = max(0, (height - crop_height) // 2)
+                box = (0, top, width, top + crop_height)
+            resampling = getattr(Image, "Resampling", Image)
+            cropped = image.crop(box).resize((1920, 1080), resampling.LANCZOS)
+            extension = os.path.splitext(destination)[1].casefold()
+            if extension in {".jpg", ".jpeg"}:
+                if cropped.mode not in {"RGB", "L"}:
+                    cropped = cropped.convert("RGB")
+                image_format = "JPEG"
+            elif extension == ".png":
+                image_format = "PNG"
+            elif extension == ".webp":
+                image_format = "WEBP"
+            else:
+                image_format = image.format or "PNG"
+            directory = os.path.dirname(destination)
+            if directory:
+                os.makedirs(directory, exist_ok=True)
+            cropped.save(destination, format=image_format)
+    except Exception:
+        if not destination_existed and os.path.exists(destination):
+            os.remove(destination)
+        return False
+    return True
+
+
 def _sgdb_key():
     return ADDON.getSettingString("steamgriddb_api_key").strip()
 

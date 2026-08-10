@@ -6,6 +6,16 @@ import unittest
 from unittest import mock
 
 
+class _Addon:
+    def getAddonInfo(self, key):
+        return tempfile.gettempdir()
+
+    def getSettingString(self, _key):
+        return ""
+
+
+sys.modules.setdefault("xbmcaddon", types.SimpleNamespace(Addon=lambda: _Addon()))
+sys.modules.setdefault("xbmcvfs", types.SimpleNamespace(translatePath=lambda value: value))
 sys.modules.setdefault("xbmc", types.SimpleNamespace())
 sys.modules.setdefault("xbmcgui", types.SimpleNamespace())
 sys.modules.setdefault("xbmcplugin", types.SimpleNamespace())
@@ -48,12 +58,18 @@ class RouterArtworkTests(unittest.TestCase):
                     with open(destination, "wb") as stream:
                         stream.write(b"art")
 
+                def crop(_source, destination):
+                    with open(destination, "wb") as stream:
+                        stream.write(b"cropped")
+                    return True
+
                 with mock.patch.object(router.database, "get_game", return_value=game):
                     with mock.patch.object(router.database, "update_artwork") as update:
                         with mock.patch.object(router.metadata, "_sgdb_key", return_value="key"):
                             with mock.patch.object(router.metadata, "steamgriddb_art", return_value=artwork):
                                 with mock.patch.object(router.metadata, "download", side_effect=download):
-                                    result = router._refresh_steamgriddb_artwork("g1")
+                                    with mock.patch.object(router.metadata, "crop_landscape", side_effect=crop):
+                                        result = router._refresh_steamgriddb_artwork("g1")
 
                 self.assertEqual(attempted[:3], [
                     "steam-cover-2x.jpg", "steam-cover.jpg", "failed-background.jpg",
@@ -70,6 +86,22 @@ class RouterArtworkTests(unittest.TestCase):
                 self.assertFalse(any(name.endswith(".download") for name in os.listdir(os.path.join(profile, "media", "g1"))))
             finally:
                 router.metadata.PROFILE = previous_profile
+
+    def test_landscape_crop_outputs_1920x1080_and_preserves_failed_destination(self):
+        from PIL import Image
+
+        with tempfile.TemporaryDirectory() as folder:
+            source = os.path.join(folder, "source.jpg")
+            destination = os.path.join(folder, "landscape.jpg")
+            Image.new("RGB", (460, 215), (20, 80, 140)).save(source)
+            self.assertTrue(router.metadata.crop_landscape(source, destination))
+            with Image.open(destination) as cropped:
+                self.assertEqual(cropped.size, (1920, 1080))
+            with open(destination, "wb") as stream:
+                stream.write(b"existing")
+            self.assertFalse(router.metadata.crop_landscape(os.path.join(folder, "missing.jpg"), destination))
+            with open(destination, "rb") as stream:
+                self.assertEqual(stream.read(), b"existing")
 
 
 if __name__ == "__main__":
