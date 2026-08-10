@@ -71,6 +71,42 @@ class MetadataTests(unittest.TestCase):
                 result = metadata.steamgriddb_art("Renamed", "42")
         self.assertEqual(result["game_id"], "42")
 
+    def test_steamgriddb_art_selects_distinct_near_16_9_landscape(self):
+        def response(path):
+            if "dimensions=600x900" in path:
+                return [{"url": "cover.jpg", "width": 600, "height": 900, "upvotes": 1}]
+            if "dimensions=460x259" in path:
+                return [
+                    {"url": "wide.jpg", "width": 1920, "height": 1080, "upvotes": 1},
+                    {"url": "too-wide.jpg", "width": 1920, "height": 620, "upvotes": 99},
+                ]
+            if path.startswith("/heroes/"):
+                return [{"url": "hero.jpg", "width": 1920, "height": 620, "upvotes": 2}]
+            return []
+
+        with mock.patch.object(metadata, "steamgriddb_game", side_effect=AssertionError("title search used")):
+            with mock.patch.object(metadata, "_sgdb_request", side_effect=response):
+                result = metadata.steamgriddb_art("Renamed", "42")
+        self.assertEqual(result["background"], "hero.jpg")
+        self.assertEqual(result["landscape"], "wide.jpg")
+
+    def test_landscape_filter_failure_preserves_other_artwork_selection(self):
+        def response(path):
+            if "dimensions=460x259" in path:
+                raise RuntimeError("unsupported dimensions filter")
+            if "dimensions=600x900" in path:
+                return [{"url": "cover.jpg", "width": 600, "height": 900}]
+            if path.startswith("/heroes/"):
+                return [{"url": "hero.jpg", "width": 1920, "height": 620}]
+            return []
+
+        with mock.patch.object(metadata, "steamgriddb_game", side_effect=AssertionError("title search used")):
+            with mock.patch.object(metadata, "_sgdb_request", side_effect=response):
+                result = metadata.steamgriddb_art("Renamed", "42")
+        self.assertEqual(result["cover"], "cover.jpg")
+        self.assertEqual(result["background"], "hero.jpg")
+        self.assertEqual(result["landscape"], "")
+
 
 class DatabaseTests(unittest.TestCase):
     def setUp(self):

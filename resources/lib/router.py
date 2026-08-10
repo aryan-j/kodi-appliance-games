@@ -1,5 +1,4 @@
 import os
-import shutil
 import sys
 from urllib.parse import parse_qs, urlencode
 
@@ -264,7 +263,19 @@ def set_favorite(game_id, favorite):
         "Games",
         "Added to Favorites" if favorite else "Removed from Favorites",
     )
-    xbmc.executebuiltin("Container.Refresh")
+    _refresh_game_surfaces()
+
+
+def _refresh_game_surfaces(refresh_container=True):
+    """Refresh the current listing or the Games hub without reloading the skin."""
+    if not refresh_container:
+        return
+    if xbmc.getCondVisibility("Window.IsActive(1102)"):
+        # Games widget paths are static, so rebuilding the hub window is the
+        # reliable way to invalidate all five widget containers at once.
+        xbmc.executebuiltin("ReplaceWindow(1102)")
+    else:
+        xbmc.executebuiltin("Container.Refresh")
 
 
 def locate(game_id):
@@ -346,12 +357,16 @@ def _refresh_steamgriddb_artwork(game_id):
             temporary = destination + ".download"
             metadata.download(source_url, temporary)
             staged[role] = (temporary, destination)
-        if "background" in staged:
-            background_temporary, background_destination = staged["background"]
-            extension = os.path.splitext(background_destination)[1].lower() or ".jpg"
+        # Use a separate near-16:9 SteamGridDB grid for widget landscape art.
+        # Do not copy the hero/background: it is a different role and often a
+        # very wide header. If no suitable grid was returned, keep the prior
+        # icon/landscape artwork untouched.
+        landscape_url = sgdb_art.get("landscape") or ""
+        if landscape_url:
+            extension = metadata.extension_from_url(landscape_url, ".jpg")
             icon_destination = os.path.join(media_folder, f"landscape{extension}")
             icon_temporary = icon_destination + ".download"
-            shutil.copy2(background_temporary, icon_temporary)
+            metadata.download(landscape_url, icon_temporary)
             staged["icon"] = (icon_temporary, icon_destination)
         artwork = {}
         for role, (temporary, destination) in staged.items():
@@ -383,6 +398,7 @@ def add_game():
     if not name:
         xbmcplugin.endOfDirectory(HANDLE, succeeded=False)
         return
+    added = False
     try:
         result = _choose_igdb(name)
         if result:
@@ -402,9 +418,16 @@ def add_game():
                 "Games",
                 f"Game added · artwork: {artwork}",
             )
+            added = True
     except Exception as exc:
         xbmcgui.Dialog().ok("Games metadata", str(exc))
     xbmcplugin.endOfDirectory(HANDLE, succeeded=True)
+    if added:
+        _refresh_game_surfaces(refresh_container=False)
+        # The add route is a one-shot plugin action. Re-entering it with
+        # Container.Refresh would open the picker again, so activate the
+        # Games hub to rebuild its widget containers instead.
+        xbmc.executebuiltin("ActivateWindow(1102)")
 
 
 def refresh_igdb(game_id):
@@ -420,7 +443,7 @@ def refresh_igdb(game_id):
         if result:
             _save_igdb_metadata(game_id, "", result)
             xbmcgui.Dialog().notification("Games", "IGDB metadata refreshed")
-            xbmc.executebuiltin("Container.Refresh")
+            _refresh_game_surfaces()
     except Exception as exc:
         xbmcgui.Dialog().ok("Games metadata", str(exc))
 
@@ -432,7 +455,7 @@ def refresh_artwork(game_id):
             "Games",
             f"SteamGridDB artwork refreshed · {result.get('game_name', '')}",
         )
-        xbmc.executebuiltin("Container.Refresh")
+        _refresh_game_surfaces()
     except Exception as exc:
         xbmcgui.Dialog().ok("Games artwork", str(exc))
 

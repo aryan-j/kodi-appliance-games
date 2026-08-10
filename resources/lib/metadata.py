@@ -240,18 +240,33 @@ def steamgriddb_game(name):
     return results[0] if results else None
 
 
-def _best_image(images, orientation="any"):
+def _best_image(
+    images,
+    orientation="any",
+    target_ratio=None,
+    excluded_urls=(),
+    max_ratio_distance=None,
+):
     candidates = []
+    excluded_urls = set(excluded_urls)
     for item in images:
         width, height = int(item.get("width") or 0), int(item.get("height") or 0)
-        if orientation == "portrait" and width >= height:
+        image_url = item.get("url") or ""
+        if image_url in excluded_urls:
             continue
-        if orientation == "landscape" and width <= height:
+        if orientation == "portrait" and width and height and width >= height:
+            continue
+        if orientation == "landscape" and width and height and width <= height:
+            continue
+        if target_ratio and (not width or not height):
             continue
         score = int(item.get("upvotes") or 0) - int(item.get("downvotes") or 0)
-        candidates.append((score, width * height, item))
-    candidates.sort(key=lambda value: (value[0], value[1]), reverse=True)
-    return candidates[0][2] if candidates else None
+        ratio_distance = abs((width / height) - target_ratio) if target_ratio else 0
+        if max_ratio_distance is not None and ratio_distance > max_ratio_distance:
+            continue
+        candidates.append((ratio_distance, score, width * height, item))
+    candidates.sort(key=lambda value: (value[0], -value[1], -value[2]))
+    return candidates[0][3] if candidates else None
 
 
 def steamgriddb_art(name, game_id=""):
@@ -263,6 +278,14 @@ def steamgriddb_art(name, game_id=""):
     portrait_grids = _sgdb_request(
         f"/grids/game/{game_id}?dimensions=600x900,342x482,660x930&types=static&nsfw=false&humor=false"
     )
+    try:
+        landscape_grids = _sgdb_request(
+            f"/grids/game/{game_id}?dimensions=460x259,600x338,342x192,660x371&types=static&nsfw=false&humor=false"
+        )
+    except Exception:
+        # A rejected/temporarily unavailable dimensions filter must not make
+        # the existing cover, hero, or logo refresh fail.
+        landscape_grids = []
     heroes = _sgdb_request(f"/heroes/game/{game_id}{common}")
     logos = _sgdb_request(f"/logos/game/{game_id}{common}")
     selected = {
@@ -270,6 +293,17 @@ def steamgriddb_art(name, game_id=""):
         "background": _best_image(heroes),
         "logo": _best_image(logos),
     }
+    background_url = (selected["background"] or {}).get("url", "")
+    # Prefer a separate near-16:9 grid for the widget landscape role. If the
+    # service has no such asset, leave the role empty so the caller preserves
+    # the existing landscape artwork instead of reusing the hero.
+    selected["landscape"] = _best_image(
+        landscape_grids,
+        orientation="landscape",
+        target_ratio=16 / 9,
+        excluded_urls={background_url},
+        max_ratio_distance=0.18,
+    )
     return {
         "game_id": str(game_id),
         "game_name": game.get("name") or name,
