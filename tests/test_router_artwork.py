@@ -81,7 +81,7 @@ class RouterArtworkTests(unittest.TestCase):
                 self.assertIn("icon", committed)
                 self.assertNotIn("background", committed)
                 self.assertRegex(os.path.basename(committed["cover"]), r"^cover-[0-9a-f]{12}\.jpg$")
-                self.assertRegex(os.path.basename(committed["icon"]), r"^icon-[0-9a-f]{12}\.jpg$")
+                self.assertRegex(os.path.basename(committed["icon"]), r"^icon-[0-9a-f]{12}-16x9\.jpg$")
                 self.assertEqual(result, artwork)
                 self.assertFalse(any(name.endswith(".download") for name in os.listdir(os.path.join(profile, "media", "g1"))))
             finally:

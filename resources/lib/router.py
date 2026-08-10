@@ -371,14 +371,19 @@ def _refresh_steamgriddb_artwork(game_id):
             values.insert(0, primary)
         return [value for value in values if value]
 
-    def destination_for(role, source_url, fallback_extension):
+    def destination_for(role, source_url, fallback_extension, suffix=""):
         extension = metadata.extension_from_url(source_url, fallback_extension)
         source_token = sha1(source_url.encode("utf-8")).hexdigest()[:12]
-        return os.path.join(media_folder, f"{role}-{source_token}{extension}")
+        return os.path.join(media_folder, f"{role}-{source_token}{suffix}{extension}")
 
     def stage_first(role, urls, fallback_extension, transform=None):
         for source_url in urls:
-            destination = destination_for(role, source_url, fallback_extension)
+            destination = destination_for(
+                role,
+                source_url,
+                fallback_extension,
+                suffix="-16x9" if transform else "",
+            )
             descriptor, temporary = tempfile.mkstemp(
                 prefix=f".{role}-", suffix=".download", dir=media_folder
             )
