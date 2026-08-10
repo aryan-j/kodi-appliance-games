@@ -267,8 +267,12 @@ def set_favorite(game_id, favorite):
     _refresh_game_surfaces()
 
 
-def _refresh_game_surfaces(refresh_container=True):
-    """Refresh the current listing or the Games hub without reloading the skin."""
+def _refresh_game_surfaces(refresh_container=True, reload_skin=False):
+    """Refresh the current listing or Games hub, optionally reloading art."""
+    if reload_skin:
+        # Artwork and metadata are explicit user actions. Reloading here makes
+        # the already-running skin pick up the new art without a Kodi restart.
+        xbmc.executebuiltin("ReloadSkin")
     if not refresh_container:
         return
     if xbmc.getCondVisibility("Window.IsActive(1102)"):
@@ -281,6 +285,7 @@ def _refresh_game_surfaces(refresh_container=True):
 
 def _open_games_hub():
     """Show the Games hub, rebuilding it when it is already active."""
+    xbmc.executebuiltin("ReloadSkin")
     if xbmc.getCondVisibility("Window.IsActive(1102)"):
         xbmc.executebuiltin("ReplaceWindow(1102)")
     else:
@@ -454,7 +459,7 @@ def refresh_igdb(game_id):
         if result:
             _save_igdb_metadata(game_id, "", result)
             xbmcgui.Dialog().notification("Games", "IGDB metadata refreshed")
-            _refresh_game_surfaces()
+            _refresh_game_surfaces(reload_skin=True)
     except Exception as exc:
         xbmcgui.Dialog().ok("Games metadata", str(exc))
 
@@ -466,7 +471,7 @@ def refresh_artwork(game_id):
             "Games",
             f"SteamGridDB artwork refreshed · {result.get('game_name', '')}",
         )
-        _refresh_game_surfaces()
+        _refresh_game_surfaces(reload_skin=True)
     except Exception as exc:
         xbmcgui.Dialog().ok("Games artwork", str(exc))
 
