@@ -331,6 +331,25 @@ class DatabaseTests(unittest.TestCase):
         self.assertEqual([row["id"] for row in database.related_games("a", "publisher")], ["c"])
         self.assertEqual([row["id"] for row in database.related_games("a", "genre")], ["b"])
 
+    def test_remove_game_keeps_external_executable_and_cascades_sessions(self):
+        executable = os.path.join(self.tempdir.name, "game.exe")
+        with open(executable, "wb") as stream:
+            stream.write(b"game")
+        with database.connect() as conn:
+            conn.execute(
+                "INSERT INTO games (id, name, executable) VALUES (?, ?, ?)",
+                ("g1", "Example", executable),
+            )
+        database.queue_launch("g1")
+
+        removed = database.remove_game("g1")
+
+        self.assertEqual(removed["id"], "g1")
+        self.assertIsNone(database.get_game("g1"))
+        with database.connect() as conn:
+            self.assertEqual(conn.execute("SELECT COUNT(*) FROM sessions").fetchone()[0], 0)
+        self.assertTrue(os.path.isfile(executable))
+
 
 if __name__ == "__main__":
     unittest.main()

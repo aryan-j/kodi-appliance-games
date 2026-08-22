@@ -48,6 +48,7 @@ def game_item(game, origin="list"):
         ("Refresh metadata (IGDB)", f"RunPlugin({url('refresh_igdb', game_id=game['id'])})"),
         ("Refresh artwork (SteamGridDB)", f"RunPlugin({url('refresh_artwork', game_id=game['id'])})"),
         ("Locate Executable", f"RunPlugin({url('locate', game_id=game['id'])})"),
+        ("Untrack from Games (keep files)", f"RunPlugin({url('untrack', game_id=game['id'])})"),
     ])
     xbmcplugin.addDirectoryItem(HANDLE, target, item, False)
 
@@ -265,6 +266,74 @@ def set_favorite(game_id, favorite):
         "Games",
         "Added to Favorites" if favorite else "Removed from Favorites",
     )
+    _refresh_game_surfaces()
+
+
+def _remove_owned_artwork(game):
+    """Remove only artwork owned by this catalog entry.
+
+    Executables, install folders, and manual artwork outside the exact
+    appliance media folder are never touched.
+    """
+    game_key = str(game["id"] or "").replace(":", "_")
+    media_root = os.path.abspath(
+        os.path.join(os.path.expandvars(metadata.PROFILE), "media", game_key)
+    )
+    if not game_key or not os.path.isdir(media_root):
+        return 0
+    media_root_key = os.path.normcase(media_root)
+    removed = 0
+    for role in ("cover", "background", "icon", "logo"):
+        raw_path = game[role] or ""
+        if not raw_path:
+            continue
+        path = os.path.abspath(os.path.expandvars(raw_path))
+        try:
+            inside = os.path.normcase(os.path.commonpath((media_root, path))) == media_root_key
+        except ValueError:
+            inside = False
+        if not inside or path == media_root or not os.path.isfile(path):
+            continue
+        try:
+            os.remove(path)
+            removed += 1
+        except OSError as exc:
+            xbmc.log(
+                f"[Kodi Appliance Games] Could not remove artwork for {game['id']}: {exc}",
+                xbmc.LOGWARNING,
+            )
+    try:
+        os.rmdir(media_root)
+    except OSError:
+        pass
+    return removed
+
+
+def untrack(game_id):
+    """Remove the game from the appliance catalog while preserving game files."""
+    game = database.get_game(game_id)
+    if not game:
+        xbmcgui.Dialog().notification("Games", "Game is not tracked")
+        _refresh_game_surfaces()
+        return
+    if not xbmcgui.Dialog().yesno(
+        "Remove from Games",
+        f"Stop tracking {game['name']}?",
+        "The game files will not be deleted.",
+    ):
+        return
+    removed = database.remove_game(game_id)
+    if not removed:
+        xbmcgui.Dialog().notification("Games", "Game is no longer tracked")
+        _refresh_game_surfaces()
+        return
+    artwork_count = _remove_owned_artwork(removed)
+    xbmc.log(
+        f"[Kodi Appliance Games] Untracked {removed['name']} "
+        f"(removed {artwork_count} appliance artwork file(s); game files kept)",
+        xbmc.LOGINFO,
+    )
+    xbmcgui.Dialog().notification("Games", f"Removed {removed['name']} from Games")
     _refresh_game_surfaces()
 
 
@@ -621,6 +690,8 @@ def run():
         set_favorite(params.get("game_id", [""])[0], True)
     elif action == "unfavorite":
         set_favorite(params.get("game_id", [""])[0], False)
+    elif action == "untrack":
+        untrack(params.get("game_id", [""])[0])
     elif action == "locate":
         locate(params.get("game_id", [""])[0])
     elif action == "selftest":

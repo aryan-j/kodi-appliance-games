@@ -119,6 +119,16 @@ def get_game(game_id):
         return conn.execute("SELECT * FROM games WHERE id = ?", (game_id,)).fetchone()
 
 
+def remove_game(game_id):
+    """Stop tracking a game without touching its executable or install files."""
+    with connect() as conn:
+        row = conn.execute("SELECT * FROM games WHERE id = ?", (game_id,)).fetchone()
+        if not row:
+            return None
+        conn.execute("DELETE FROM games WHERE id = ?", (game_id,))
+        return row
+
+
 def set_favorite(game_id, favorite):
     with connect() as conn:
         conn.execute(

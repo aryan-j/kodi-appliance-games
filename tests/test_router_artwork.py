@@ -26,6 +26,38 @@ from resources.lib import router
 
 
 class RouterArtworkTests(unittest.TestCase):
+    def test_remove_owned_artwork_does_not_touch_game_files_or_external_art(self):
+        with tempfile.TemporaryDirectory() as profile:
+            previous_profile = router.metadata.PROFILE
+            router.metadata.PROFILE = profile
+            try:
+                media = os.path.join(profile, "media", "igdb_7")
+                os.makedirs(media)
+                cover = os.path.join(media, "cover-owned.jpg")
+                unrelated = os.path.join(media, "custom-art.jpg")
+                executable = os.path.join(profile, "Game", "game.exe")
+                os.makedirs(os.path.dirname(executable))
+                for path in (cover, unrelated, executable):
+                    with open(path, "wb") as stream:
+                        stream.write(b"data")
+                game = {
+                    "id": "igdb:7",
+                    "cover": cover,
+                    "background": "",
+                    "icon": "",
+                    "logo": "",
+                }
+
+                removed = router._remove_owned_artwork(game)
+
+                self.assertEqual(removed, 1)
+                self.assertFalse(os.path.exists(cover))
+                self.assertTrue(os.path.isfile(unrelated))
+                self.assertTrue(os.path.isfile(executable))
+                self.assertTrue(os.path.isdir(media))
+            finally:
+                router.metadata.PROFILE = previous_profile
+
     def test_refresh_surfaces_never_reloads_skin(self):
         with mock.patch.object(router.xbmc, "getCondVisibility", return_value=True, create=True):
             with mock.patch.object(router.xbmc, "executebuiltin", create=True) as execute:
