@@ -76,6 +76,11 @@ def _processes():
     return rows
 
 
+def running_process_ids():
+    """Return a point-in-time set of live Windows process IDs."""
+    return set(_processes())
+
+
 def _image_path(pid):
     handle = kernel32.OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, False, pid)
     if not handle:

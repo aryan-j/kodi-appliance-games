@@ -313,17 +313,98 @@ def queue_launch(game_id):
         return cursor.lastrowid
 
 
-def next_pending_session():
+def reconcile_startup_sessions(active_process_ids=None):
+    """Quarantine persisted launch state before the service accepts new work.
+
+    A pending launch is a user action from an earlier Kodi run.  It must not
+    be replayed automatically on the next startup, so all pending rows that
+    exist at the startup watermark are retained and marked failed with a
+    clear reason.  Launches queued after that watermark remain eligible for
+    the normal service loop.
+
+    Running/starting rows are reconciled only when the caller supplies a
+    successful process snapshot.  If the snapshot is unavailable, the rows
+    are preserved rather than risking a false failure.  The operation is
+    idempotent and does not delete session history.
+    """
+    active = None
+    if active_process_ids is not None:
+        try:
+            active = {int(value) for value in active_process_ids if int(value) > 0}
+        except (TypeError, ValueError):
+            # A malformed process snapshot is not evidence that a game ended.
+            active = None
+
+    with connect() as conn:
+        watermark_row = conn.execute(
+            "SELECT COALESCE(MAX(id), 0) AS watermark FROM sessions"
+        ).fetchone()
+        watermark = int(watermark_row["watermark"] or 0)
+
+        pending = conn.execute(
+            """
+            UPDATE sessions
+            SET status = 'failed', ended_at = CURRENT_TIMESTAMP,
+                duration_seconds = COALESCE(duration_seconds, 0),
+                error = 'Not launched: pending when Kodi service started'
+            WHERE id <= ? AND status = 'pending'
+            """,
+            (watermark,),
+        ).rowcount
+
+        stale = 0
+        if active is not None:
+            rows = conn.execute(
+                """
+                SELECT id, status, process_id
+                FROM sessions
+                WHERE status IN ('running', 'starting')
+                """
+            ).fetchall()
+            for row in rows:
+                process_id = int(row["process_id"] or 0)
+                if process_id > 0 and process_id in active:
+                    continue
+                if row["status"] == "starting":
+                    reason = (
+                        "Reconciled at Kodi service start: launch had not "
+                        "recorded a live process"
+                    )
+                else:
+                    reason = (
+                        "Reconciled at Kodi service start: recorded process "
+                        f"{process_id or 'unknown'} is not running"
+                    )
+                conn.execute(
+                    """
+                    UPDATE sessions
+                    SET status = 'failed', ended_at = CURRENT_TIMESTAMP,
+                        duration_seconds = COALESCE(duration_seconds, 0), error = ?
+                    WHERE id = ? AND status IN ('running', 'starting')
+                    """,
+                    (reason, row["id"]),
+                )
+                stale += 1
+
+    return {
+        "watermark": watermark,
+        "pending_quarantined": max(0, int(pending)),
+        "stale_reconciled": stale,
+    }
+
+
+def next_pending_session(after_session_id=0):
     with connect() as conn:
         row = conn.execute(
             """
-            SELECT sessions.id AS session_id, games.*
+            SELECT sessions.id AS session_id, sessions.status AS session_status, games.*
             FROM sessions
             JOIN games ON games.id = sessions.game_id
-            WHERE sessions.status = 'pending'
+            WHERE sessions.status = 'pending' AND sessions.id > ?
             ORDER BY sessions.id
             LIMIT 1
-            """
+            """,
+            (int(after_session_id or 0),),
         ).fetchone()
         if row:
             conn.execute(

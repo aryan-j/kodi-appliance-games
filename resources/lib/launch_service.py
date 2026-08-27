@@ -11,6 +11,32 @@ from . import database
 from . import process_tracking
 
 
+STARTUP_QUEUE_GUARD_SECONDS = 5.0
+
+
+def _startup_session_guard():
+    """Reconcile old launch state and return the startup session watermark."""
+    try:
+        # A process snapshot is read once.  If it cannot be collected, the
+        # database helper fails closed and preserves running history.
+        active_process_ids = process_tracking.running_process_ids()
+    except Exception as exc:
+        active_process_ids = None
+        xbmc.log(
+            f"[Kodi Appliance Games] Startup process reconciliation skipped: {exc}",
+            xbmc.LOGWARNING,
+        )
+    result = database.reconcile_startup_sessions(active_process_ids)
+    if result["pending_quarantined"] or result["stale_reconciled"]:
+        xbmc.log(
+            "[Kodi Appliance Games] Startup session guard: "
+            f"quarantined {result['pending_quarantined']} pending, "
+            f"reconciled {result['stale_reconciled']} stale",
+            xbmc.LOGINFO,
+        )
+    return result["watermark"]
+
+
 def _overlay_path():
     addon_path = xbmcvfs.translatePath(xbmcaddon.Addon().getAddonInfo("path"))
     return os.path.join(
@@ -163,10 +189,13 @@ def launch(session):
 
 def run():
     database.connect().close()
+    startup_watermark = _startup_session_guard()
+    launch_after = time.monotonic() + STARTUP_QUEUE_GUARD_SECONDS
     monitor = xbmc.Monitor()
     while not monitor.abortRequested():
-        session = database.next_pending_session()
-        if session:
-            launch(session)
+        if time.monotonic() >= launch_after:
+            session = database.next_pending_session(after_session_id=startup_watermark)
+            if session:
+                launch(session)
         if monitor.waitForAbort(1):
             break
