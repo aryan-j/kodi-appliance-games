@@ -1,4 +1,5 @@
 import os
+import subprocess
 import sys
 import tempfile
 from hashlib import sha1
@@ -8,7 +9,7 @@ import xbmc
 import xbmcgui
 import xbmcplugin
 
-from . import database, metadata
+from . import apps, database, metadata
 
 
 HANDLE = int(sys.argv[1])
@@ -27,6 +28,30 @@ def add_folder(label, target, art=None, dbtype=None):
     if dbtype == "genre":
         item.setProperty("appliance.genre", "true")
     xbmcplugin.addDirectoryItem(HANDLE, target, item, True)
+
+
+def _addon_root():
+    return os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
+
+
+def application_item(application):
+    """Add a non-folder launch item for one statically defined application."""
+    target = url("launch_app", app_key=application.key)
+    item = xbmcgui.ListItem(label=application.label, path=target)
+    artwork = apps.artwork_path(application, _addon_root())
+    item.setArt({
+        "icon": artwork,
+        "thumb": artwork,
+        "poster": artwork,
+    })
+    item.setProperty("IsPlayable", "true")
+    item.setProperty("IsFolder", "false")
+    item.setProperty("application.id", application.key)
+    available = apps.is_available(application)
+    item.setProperty("application.available", "true" if available else "false")
+    if not available:
+        item.setProperty("application.status", "Unavailable")
+    xbmcplugin.addDirectoryItem(HANDLE, target, item, False)
 
 
 def game_item(game, origin="list"):
@@ -149,10 +174,52 @@ def root():
     add_folder("Recently Added", url("list", view="new"))
     add_folder("Genres", url("genres"))
     add_folder("All Games", url("list", view="all"))
+    add_folder("Applications", url("apps"))
     add_folder("Add Game", url("add_game"))
     add_folder("Metadata Settings", url("settings"))
     xbmcplugin.setContent(HANDLE, "games")
     xbmcplugin.endOfDirectory(HANDLE)
+
+
+def applications():
+    """List the static Applications catalog without touching the Games DB."""
+    for application in apps.all_applications():
+        application_item(application)
+    xbmcplugin.setContent(HANDLE, "applications")
+    xbmcplugin.endOfDirectory(HANDLE)
+
+
+def launch_application(app_key):
+    """Launch a desktop application, never through game sessions or overlay."""
+    application = apps.get_application(app_key)
+    if not application:
+        xbmcgui.Dialog().notification(
+            "Applications",
+            "Application not found",
+            xbmcgui.NOTIFICATION_ERROR,
+        )
+        return
+    try:
+        process = apps.launch(application)
+    except (OSError, ValueError, subprocess.SubprocessError) as exc:
+        xbmc.log(
+            f"[Kodi Appliance Games] Application launch failed for {application.label}: {exc}",
+            xbmc.LOGERROR,
+        )
+        xbmcgui.Dialog().notification(
+            "Applications",
+            f"{application.label} unavailable: {exc}",
+            xbmcgui.NOTIFICATION_ERROR,
+        )
+        return
+    if process is None:
+        xbmcgui.Dialog().notification(
+            "Applications",
+            f"{application.label} is unavailable",
+            xbmcgui.NOTIFICATION_ERROR,
+        )
+        return
+    xbmcgui.Dialog().notification("Applications", f"Launching {application.label}")
 
 
 def listing(view, origin="list"):
@@ -655,11 +722,16 @@ def configure_skin():
 
 
 def run():
-    database.connect().close()
     params = parse_qs(sys.argv[2][1:] if len(sys.argv) > 2 else "")
     action = params.get("action", ["root"])[0]
+    # Applications are static desktop entries. Avoid even opening the Games
+    # database for their listing or launch action.
+    if action not in {"apps", "launch_app"}:
+        database.connect().close()
     if action == "root":
         root()
+    elif action == "apps":
+        applications()
     elif action == "list":
         listing(
             params.get("view", ["all"])[0],
@@ -684,6 +756,8 @@ def run():
         )
     elif action == "play":
         play(params.get("game_id", [""])[0])
+    elif action == "launch_app":
+        launch_application(params.get("app_key", [""])[0])
     elif action == "walkthrough":
         walkthrough(params.get("game_id", [""])[0])
     elif action == "favorite":

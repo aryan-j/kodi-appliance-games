@@ -8,8 +8,11 @@ optional controller-operated companion overlay.
 ## Repository layout
 
 - `resources/lib/`: Kodi library, metadata, launch, and process-management code.
+- `resources/lib/apps.py`: static desktop application catalog and Windows launch
+  command helpers.
 - `resources/companion/`: C# companion overlay and build script.
 - `resources/companion/web-ui/`: controller-first overlay interface.
+- `resources/media/apps/`: checked-in Hydra and ChatGPT application artwork.
 - `resources/settings.xml`: add-on settings schema. Credentials are deliberately
   stored only in Kodi's profile and are never committed.
 
@@ -26,6 +29,20 @@ untracked:
 Game records contain direct executable, argument and working-directory data.
 Artwork copied into the add-on profile remains owned by Kodi, so browsing and
 launching do not require an external library manager.
+
+## Applications
+
+The Games root includes an Applications entry with static Hydra and ChatGPT
+launch items. Registered Windows AppIDs are opened headlessly through
+`explorer.exe shell:AppsFolder\<AppID>`; Hydra uses
+`gg.hydralauncher.hydra` when registered and falls back at runtime to
+`D:\Programs\Hydra\Hydra.exe` only when that executable is present. ChatGPT
+uses `OpenAI.Codex_2p2nqsd0c76g0!App`. These application entries never create
+Games database records, queue game sessions, or start the companion overlay.
+Unavailable targets stay visible with their explicit labels and show a clear
+Kodi error notification when selected. Availability uses only bounded checks
+for the two known targets; it does not enumerate installed files or perform
+network discovery on widget refresh.
 
 ## Metadata and artwork
 
