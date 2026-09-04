@@ -4,7 +4,6 @@ using System.Diagnostics;
 using System.Drawing;
 using System.IO;
 using System.Runtime.InteropServices;
-using System.Text.RegularExpressions;
 using System.Threading;
 using System.Web.Script.Serialization;
 using System.Windows.Forms;
@@ -57,6 +56,7 @@ namespace KodiAppliance
         private bool bluetoothEnabled;
         private bool connectivityPanelVisible;
         private bool connectivitySnapshotInFlight;
+        private bool connectivityActionInFlight;
         private const int OverlayHotKey = 0x4B42;
         private const int HotKeyMessage = 0x0312;
 
@@ -173,9 +173,38 @@ namespace KodiAppliance
 
         private void OnWebMessage(object sender, CoreWebView2WebMessageReceivedEventArgs args)
         {
-            string json = args.WebMessageAsJson;
-            Match match = Regex.Match(json ?? "", "\"action\"\\s*:\\s*\"([^\"]+)\"");
-            if (match.Success) HandleAction(match.Groups[1].Value);
+            try
+            {
+                object parsed = serializer.DeserializeObject(args.WebMessageAsJson ?? "{}");
+                Dictionary<string, object> message = parsed as Dictionary<string, object>;
+                if (message == null) return;
+                object actionValue;
+                if (!message.TryGetValue("action", out actionValue)) return;
+                string action = actionValue as string;
+                if (String.IsNullOrWhiteSpace(action) || action.Length > 40) return;
+                string ssid = null;
+                if (message.ContainsKey("ssid"))
+                {
+                    object ssidValue = message["ssid"];
+                    ssid = ssidValue as string;
+                    if (!IsSafeSsid(ssid)) return;
+                    ssid = ssid.Trim();
+                }
+                HandleAction(action, ssid);
+            }
+            catch { }
+        }
+
+        private static bool IsSafeSsid(string ssid)
+        {
+            if (String.IsNullOrWhiteSpace(ssid) || ssid.Length > 64) return false;
+            foreach (char character in ssid)
+            {
+                if (character < 0x20 || character == 0x7F ||
+                    character == '\"' || character == '\'' ||
+                    character == '\r' || character == '\n') return false;
+            }
+            return true;
         }
 
         private void SendInitialState()
@@ -300,13 +329,15 @@ namespace KodiAppliance
             }
         }
 
-        private void HandleAction(string action)
+        private void HandleAction(string action, string ssid = null)
         {
             if (connectivityPanelVisible)
             {
                 if (action == "connectivityClose") HideConnectivityPanel();
                 else if (action == "wifiRefresh" || action == "bluetoothRefresh")
                     RequestConnectivitySnapshot(true);
+                else if (action == "wifiConnect" && IsSafeSsid(ssid))
+                    RequestWifiConnect(ssid.Trim());
                 else if (action == "wifiSettings") OpenConnectivitySettings(RadioKind.WiFi);
                 else if (action == "bluetoothSettings") OpenConnectivitySettings(RadioKind.Bluetooth);
                 return;
@@ -410,6 +441,36 @@ namespace KodiAppliance
                     else connectivitySnapshotInFlight = false;
                 }
                 catch { connectivitySnapshotInFlight = false; }
+            });
+        }
+
+        private void RequestWifiConnect(string ssid)
+        {
+            if (!connectivityPanelVisible || connectivityActionInFlight ||
+                !IsSafeSsid(ssid)) return;
+            connectivityActionInFlight = true;
+            Execute("window.overlayUI.setConnectivityStatus(" +
+                serializer.Serialize("Connecting to " + ssid.Trim() + "…") + ");");
+            ThreadPool.QueueUserWorkItem(delegate {
+                object result = SystemConnectivity.ConnectWifi(ssid.Trim());
+                try
+                {
+                    if (!IsDisposed && IsHandleCreated)
+                    {
+                        BeginInvoke((MethodInvoker)delegate {
+                            connectivityActionInFlight = false;
+                            if (!connectivityPanelVisible) return;
+                            Dictionary<string, object> payload = new Dictionary<string, object> {
+                                { "result", result }
+                            };
+                            Execute("window.overlayUI.setConnectivityActionResult(" +
+                                serializer.Serialize(payload) + ");");
+                            RequestConnectivitySnapshot(true);
+                        });
+                    }
+                    else connectivityActionInFlight = false;
+                }
+                catch { connectivityActionInFlight = false; }
             });
         }
 

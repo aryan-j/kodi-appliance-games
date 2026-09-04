@@ -399,6 +399,16 @@ button { font: inherit; }
   color: var(--color-fg-muted-2);
 }
 
+.connectivity-status {
+  min-height: 1.25rem;
+  margin: calc(var(--space-2) * -1) 0 0;
+  overflow: hidden;
+  color: var(--color-fg-muted-2);
+  font-size: var(--fs-section-label);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .connectivity-content {
   min-height: 0;
   flex: 1;
@@ -450,6 +460,80 @@ button { font: inherit; }
   gap: var(--space-2);
   overflow: auto;
   padding-right: var(--space-1);
+}
+
+.connectivity-network-list {
+  min-height: 0;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  overflow: auto;
+  padding-right: var(--space-1);
+}
+
+.connectivity-network-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-5);
+  min-height: var(--row-height);
+  border: none;
+  border-radius: var(--row-radius);
+  padding: var(--space-3) var(--space-5);
+  background: var(--color-group);
+  color: var(--color-fg);
+  text-align: left;
+  cursor: pointer;
+}
+
+.connectivity-network-row:hover,
+.connectivity-network-row:focus-visible,
+.connectivity-network-row.is-focused {
+  background: var(--color-focus-bg);
+  color: var(--color-focus-text);
+  outline: none;
+}
+
+.connectivity-network-text { min-width: 0; }
+.connectivity-network-text strong {
+  display: block;
+  overflow: hidden;
+  font-size: var(--fs-value);
+  font-weight: var(--fw-semibold);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.connectivity-network-text span {
+  display: block;
+  margin-top: var(--space-1);
+  overflow: hidden;
+  color: var(--color-fg-muted-2);
+  font-size: var(--fs-section-label);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.connectivity-network-row.is-focused .connectivity-network-text span,
+.connectivity-network-row:hover .connectivity-network-text span,
+.connectivity-network-row:focus-visible .connectivity-network-text span {
+  color: inherit;
+  opacity: 0.78;
+}
+
+.connectivity-network-state {
+  flex: none;
+  color: var(--color-fg-muted-2);
+  font-size: var(--fs-section-label);
+  font-weight: var(--fw-semibold);
+  white-space: nowrap;
+}
+
+.connectivity-network-row.is-focused .connectivity-network-state,
+.connectivity-network-row:hover .connectivity-network-state,
+.connectivity-network-row:focus-visible .connectivity-network-state {
+  color: inherit;
 }
 
 .connectivity-device-row {

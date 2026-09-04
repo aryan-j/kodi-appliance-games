@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
 using System.Runtime.InteropServices;
+using System.Text;
 using System.Web.Script.Serialization;
 
 namespace KodiAppliance
@@ -205,6 +206,29 @@ namespace KodiAppliance
             }
         }
 
+        internal static object ConnectWifi(string ssid)
+        {
+            if (!IsSafeSsid(ssid))
+            {
+                return new Dictionary<string, object> {
+                    { "result", "Invalid" },
+                    { "message", "Invalid network name" }
+                };
+            }
+            object result = Deserialize(RunScript("Connect", ssid.Trim()));
+            Invalidate();
+            return result;
+        }
+
+        internal static void Invalidate()
+        {
+            lock (CacheLock)
+            {
+                cachedJson = null;
+                cachedAtUtc = DateTime.MinValue;
+            }
+        }
+
         private static object Deserialize(string json)
         {
             try
@@ -219,6 +243,52 @@ namespace KodiAppliance
 
         private static string RunSnapshot()
         {
+            return RunScript("Snapshot", null);
+        }
+
+        private static bool IsSafeSsid(string ssid)
+        {
+            if (String.IsNullOrWhiteSpace(ssid) || ssid.Length > 64) return false;
+            foreach (char character in ssid)
+            {
+                if (character < 0x20 || character == 0x7F ||
+                    character == '\"' || character == '\'' ||
+                    character == '\r' || character == '\n') return false;
+            }
+            return true;
+        }
+
+        private static string QuoteArgument(string value)
+        {
+            StringBuilder result = new StringBuilder();
+            result.Append('\"');
+            int backslashes = 0;
+            foreach (char character in value ?? "")
+            {
+                if (character == '\\')
+                {
+                    backslashes++;
+                    continue;
+                }
+                if (character == '\"')
+                {
+                    result.Append(new string('\\', backslashes * 2 + 1));
+                    result.Append('\"');
+                }
+                else
+                {
+                    result.Append(new string('\\', backslashes));
+                    result.Append(character);
+                }
+                backslashes = 0;
+            }
+            result.Append(new string('\\', backslashes * 2));
+            result.Append('\"');
+            return result.ToString();
+        }
+
+        private static string RunScript(string action, string ssid)
+        {
             try
             {
                 string script = Path.Combine(
@@ -226,8 +296,10 @@ namespace KodiAppliance
                 if (!File.Exists(script)) return "{}";
                 ProcessStartInfo info = new ProcessStartInfo(
                     "powershell.exe",
-                    "-NoProfile -NonInteractive -ExecutionPolicy Bypass -File \"" +
-                    script + "\" -Action Snapshot") {
+                    "-NoProfile -NonInteractive -ExecutionPolicy Bypass -File " +
+                    QuoteArgument(script) + " -Action " + action +
+                    (String.IsNullOrWhiteSpace(ssid) ? "" :
+                        " -Ssid " + QuoteArgument(ssid))) {
                     UseShellExecute = false,
                     CreateNoWindow = true,
                     RedirectStandardOutput = true,

@@ -19,6 +19,7 @@
   const connectivityPanel = stage.querySelector(".connectivity-panel");
   const connectivityTitle = stage.querySelector(".connectivity-title");
   const connectivitySubtitle = stage.querySelector(".connectivity-subtitle");
+  const connectivityStatus = stage.querySelector(".connectivity-status");
   const connectivityContent = stage.querySelector(".connectivity-content");
   const connectivityActions = stage.querySelector(".connectivity-actions");
   const connectivityBack = stage.querySelector(".connectivity-back");
@@ -94,8 +95,9 @@
     });
   });
 
-  function sendAction(action) {
+  function sendAction(action, data) {
     const message = { type: "action", action: action };
+    if (data && typeof data.ssid === "string") message.ssid = data.ssid;
     if (window.chrome && window.chrome.webview) {
       window.chrome.webview.postMessage(message);
     } else {
@@ -157,11 +159,45 @@
     connectivityFocusButtons.push(button);
   }
 
+  function appendWifiNetwork(parent, network, currentSsid) {
+    if (!network || typeof network.ssid !== "string" || !network.ssid) return;
+    const ssid = network.ssid;
+    if (ssid.length > 64 || /[\x00-\x1F\x7F"'\r\n]/.test(ssid)) return;
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "connectivity-network-row";
+    button.dataset.connectivityAction = "wifiConnect";
+    const text = document.createElement("span");
+    text.className = "connectivity-network-text";
+    const name = document.createElement("strong");
+    safeText(name, ssid);
+    const security = document.createElement("span");
+    const authentication = displayValue(network.authentication, "Security unknown");
+    const signal = Number(network.signal);
+    const signalText = Number.isFinite(signal) && signal >= 0 && signal <= 100
+      ? "Signal " + Math.round(signal) + "%" : "Signal —";
+    safeText(security, signalText + "  ·  " + authentication);
+    text.appendChild(name);
+    text.appendChild(security);
+    const state = document.createElement("span");
+    state.className = "connectivity-network-state";
+    safeText(state, currentSsid && currentSsid === ssid ? "Connected" : "Connect");
+    button.appendChild(text);
+    button.appendChild(state);
+    button.addEventListener("click", function () {
+      sendAction("wifiConnect", { ssid: ssid });
+    });
+    parent.appendChild(button);
+    connectivityFocusButtons.push(button);
+  }
+
   function renderConnectivity(kind, snapshot) {
     if (!connectivityContent || !connectivityActions) return;
     connectivityKind = kind === "bluetooth" ? "bluetooth" : "wifi";
     while (connectivityContent.firstChild) connectivityContent.removeChild(connectivityContent.firstChild);
     while (connectivityActions.firstChild) connectivityActions.removeChild(connectivityActions.firstChild);
+    connectivityFocusButtons = [];
+    if (connectivityBack) connectivityFocusButtons.push(connectivityBack);
 
     const source = snapshot || {};
     const data = source[connectivityKind] || {};
@@ -173,6 +209,22 @@
       appendFact(facts, "Signal", Number.isFinite(Number(data.signal)) ? Number(data.signal) + "%" : "—");
       appendFact(facts, "Link speed", displayValue(data.linkSpeed, "—"));
       appendFact(facts, "Adapter", displayValue(data.adapter, "—"));
+      connectivityContent.appendChild(facts);
+
+      const networkList = document.createElement("div");
+      networkList.className = "connectivity-network-list";
+      const networks = Array.isArray(data.networks) ? data.networks : [];
+      if (networks.length === 0) {
+        const empty = document.createElement("p");
+        empty.className = "connectivity-empty";
+        safeText(empty, "No Wi-Fi networks found");
+        networkList.appendChild(empty);
+      } else {
+        networks.forEach(function (network) {
+          appendWifiNetwork(networkList, network, data.ssid);
+        });
+      }
+      connectivityContent.appendChild(networkList);
     } else {
       const devices = Array.isArray(data.devices) ? data.devices : [];
       appendFact(facts, "Bluetooth", displayValue(data.state, "Unknown"));
@@ -210,16 +262,14 @@
       }
       connectivityContent.appendChild(deviceList);
     }
-    if (connectivityKind === "wifi") connectivityContent.appendChild(facts);
 
-    connectivityFocusButtons = [];
-    if (connectivityBack) connectivityFocusButtons.push(connectivityBack);
     appendConnectivityAction("Refresh", connectivityKind + "Refresh");
     appendConnectivityAction(
       connectivityKind === "wifi" ? "Open Network Settings" : "Open Bluetooth Settings",
       connectivityKind + "Settings");
     connectivityFocusIndex = connectivityFocusButtons.length > 1 ? 1 : 0;
     setConnectivityFocus();
+    if (connectivityStatus) safeText(connectivityStatus, "");
   }
 
   function setConnectivityFocus() {
@@ -348,7 +398,7 @@
       connectivityPanel.hidden = false;
       safeText(connectivityTitle, payload.kind === "bluetooth" ? "Bluetooth" : "Wi-Fi");
       safeText(connectivitySubtitle, payload.kind === "bluetooth"
-        ? "Paired and connected devices" : "Current network");
+        ? "Paired and connected devices" : "Available networks");
       renderConnectivity(payload.kind, payload.snapshot);
     },
     setConnectivityDetails: function (payload) {
@@ -359,6 +409,25 @@
     hideConnectivity: function () {
       if (connectivityPanel) connectivityPanel.hidden = true;
       connectivityFocusButtons = [];
+    },
+    setConnectivityStatus: function (message) {
+      safeText(connectivityStatus, message);
+    },
+    setConnectivityActionResult: function (payload) {
+      payload = payload || {};
+      const result = payload.result || {};
+      const state = result.result;
+      if (state === "Connected") {
+        safeText(connectivityStatus, "Connection requested — refreshing networks…");
+      } else if (state === "NeedsSettings") {
+        safeText(connectivityStatus, "Network is not saved — open Network Settings to connect");
+      } else if (state === "Invalid") {
+        safeText(connectivityStatus, "Invalid network name");
+      } else if (state === "Failed") {
+        safeText(connectivityStatus, "Could not connect using the saved profile");
+      } else {
+        safeText(connectivityStatus, "Connection status unavailable");
+      }
     },
     moveConnectivityFocus: moveConnectivityFocus,
     activateConnectivityFocus: activateConnectivityFocus,
