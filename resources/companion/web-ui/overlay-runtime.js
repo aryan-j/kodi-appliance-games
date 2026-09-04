@@ -15,7 +15,8 @@
   const groups = stage.querySelectorAll(".control-group");
   const volumeFill = stage.querySelector(".volume-fill");
   const volumeValue = stage.querySelector(".volume-value");
-  const switches = stage.querySelectorAll(".switch");
+  const connectionStates = stage.querySelectorAll("[data-connection-status]");
+  const volumeState = stage.querySelector(".volume-state");
   const connectivityPanel = stage.querySelector(".connectivity-panel");
   const connectivityTitle = stage.querySelector(".connectivity-title");
   const connectivitySubtitle = stage.querySelector(".connectivity-subtitle");
@@ -29,7 +30,6 @@
   const actionRows = [
     ["return", "exit"],
     ["volume"],
-    ["mute"],
     ["wifi", "wifiDetails"],
     ["bluetooth", "bluetoothDetails"],
     ["sleep", "restart", "shutdown"]
@@ -44,12 +44,12 @@
   ];
   const orderedElements = [
     groupButtonSets[0][0], groupButtonSets[0][1],
-    groupButtonSets[1][0], groupButtonSets[1][1],
+    groupButtonSets[1][0],
     groupButtonSets[2][0], groupButtonSets[2][1],
     groupButtonSets[3][0], groupButtonSets[3][1], groupButtonSets[3][2]
   ];
   const orderedActions = [
-    "return", "exit", "volume", "mute", "wifi", "bluetooth",
+    "return", "exit", "volume", "wifi", "bluetooth",
     "sleep", "restart", "shutdown"
   ];
   const detailElements = stage.querySelectorAll("[data-connectivity-details]");
@@ -98,10 +98,72 @@
   function sendAction(action, data) {
     const message = { type: "action", action: action };
     if (data && typeof data.ssid === "string") message.ssid = data.ssid;
-    if (window.chrome && window.chrome.webview) {
+    const hostBridgeAvailable = window.chrome && window.chrome.webview && window.location.hostname === "overlay.local";
+    if (hostBridgeAvailable) {
       window.chrome.webview.postMessage(message);
     } else {
       console.info("Overlay action", message);
+      runBrowserDemoAction(action, data);
+    }
+  }
+
+  // Keep the design package explorable when opened in a normal browser. Kodi's
+  // WebView2 host takes the real path above, so these demo-only states never
+  // replace system actions in the live overlay.
+  function runBrowserDemoAction(action, data) {
+    if (action === "volume") {
+      const muted = !elements.volume.classList.contains("is-muted");
+      window.overlayUI.setVolume({ value: 66, muted: muted });
+      return;
+    }
+    if (action === "wifi") {
+      window.overlayUI.setConnectivity({ wifiEnabled: !connectionStates[0].classList.contains("is-on"), bluetoothEnabled: connectionStates[1].classList.contains("is-on") });
+      return;
+    }
+    if (action === "bluetooth") {
+      window.overlayUI.setConnectivity({ wifiEnabled: connectionStates[0].classList.contains("is-on"), bluetoothEnabled: !connectionStates[1].classList.contains("is-on") });
+      return;
+    }
+    if (action === "wifiDetails" || action === "bluetoothDetails") {
+      const kind = action === "bluetoothDetails" ? "bluetooth" : "wifi";
+      window.overlayUI.showConnectivity({ kind: kind, snapshot: {
+        wifi: {
+          state: "Connected",
+          ssid: "Arcade Wi-Fi",
+          signal: 86,
+          linkSpeed: "866 Mbps",
+          adapter: "Wireless adapter",
+          networks: [
+            { ssid: "Arcade Wi-Fi", signal: 86, authentication: "WPA2-Personal" },
+            { ssid: "Guest network", signal: 54, authentication: "WPA2-Personal" },
+            { ssid: "5G backup", signal: 32, authentication: "Open" }
+          ]
+        },
+        bluetooth: {
+          state: "On",
+          devices: [
+            { name: "DualSense Wireless Controller", status: "Connected", battery: 82 },
+            { name: "Living room headset", status: "Paired", battery: 48 }
+          ]
+        }
+      } });
+      return;
+    }
+    if (action === "connectivityClose") {
+      window.overlayUI.hideConnectivity();
+      return;
+    }
+    if (action === "exit") {
+      window.overlayUI.showConfirmation({ title: "Exit Galacticare?", focusedAction: "confirmNo" });
+      return;
+    }
+    if (action === "sleep" || action === "restart" || action === "shutdown") {
+      const labels = { sleep: "Put this PC to sleep?", restart: "Restart this PC?", shutdown: "Shut down this PC?" };
+      window.overlayUI.showConfirmation({ title: labels[action], focusedAction: "confirmNo" });
+      return;
+    }
+    if (action === "confirmNo" || action === "confirmYes") {
+      window.overlayUI.hideConfirmation();
     }
   }
 
@@ -121,13 +183,43 @@
     };
   }
 
-  function setSwitch(index, on) {
-    if (switches[index]) switches[index].classList.toggle("is-on", !!on);
+  function setConnectionState(index, on) {
+    if (!connectionStates[index]) return;
+    connectionStates[index].classList.toggle("is-on", !!on);
+    safeText(connectionStates[index], on ? "On" : "Off");
   }
 
   let connectivityKind = "wifi";
   let connectivityFocusIndex = 0;
   let connectivityFocusButtons = [];
+  let connectivityHideTimer = null;
+
+  function showConnectivityPanelVisual() {
+    if (!connectivityPanel) return;
+    if (connectivityHideTimer) {
+      window.clearTimeout(connectivityHideTimer);
+      connectivityHideTimer = null;
+    }
+    connectivityPanel.hidden = false;
+    connectivityPanel.classList.remove("is-leaving");
+    connectivityPanel.classList.remove("is-visible");
+    window.requestAnimationFrame(function () {
+      if (connectivityPanel) connectivityPanel.classList.add("is-visible");
+    });
+  }
+
+  function hideConnectivityPanelVisual() {
+    if (!connectivityPanel) return;
+    connectivityPanel.classList.remove("is-visible");
+    connectivityPanel.classList.add("is-leaving");
+    if (connectivityHideTimer) window.clearTimeout(connectivityHideTimer);
+    connectivityHideTimer = window.setTimeout(function () {
+      if (!connectivityPanel || connectivityPanel.classList.contains("is-visible")) return;
+      connectivityPanel.hidden = true;
+      connectivityPanel.classList.remove("is-leaving");
+      connectivityHideTimer = null;
+    }, 220);
+  }
 
   function displayValue(value, fallback) {
     if (value == null || String(value).trim() === "") return fallback;
@@ -383,19 +475,31 @@
       payload = payload || {};
       const numeric = Number(payload.value);
       const value = Number.isFinite(numeric) ? Math.max(0, Math.min(100, numeric)) : 0;
+      const muted = !!payload.muted;
       if (volumeFill) volumeFill.style.width = value + "%";
       safeText(volumeValue, value + "%");
-      setSwitch(0, !!payload.muted);
+      if (elements.volume) {
+        elements.volume.classList.toggle("is-muted", muted);
+        elements.volume.setAttribute(
+          "aria-label",
+          "Volume " + value + " percent. " + (muted ? "Click to unmute." : "Click to mute.")
+        );
+      }
+      safeText(volumeState, muted ? "Muted · click to restore" : "Click to mute / unmute");
     },
     setConnectivity: function (payload) {
       payload = payload || {};
-      setSwitch(1, !!payload.wifiEnabled);
-      setSwitch(2, !!payload.bluetoothEnabled);
+      const wifiOn = !!payload.wifiEnabled;
+      const bluetoothOn = !!payload.bluetoothEnabled;
+      setConnectionState(0, wifiOn);
+      setConnectionState(1, bluetoothOn);
+      if (elements.wifi) elements.wifi.setAttribute("aria-pressed", String(wifiOn));
+      if (elements.bluetooth) elements.bluetooth.setAttribute("aria-pressed", String(bluetoothOn));
     },
     showConnectivity: function (payload) {
       payload = payload || {};
       if (!connectivityPanel) return;
-      connectivityPanel.hidden = false;
+      showConnectivityPanelVisual();
       safeText(connectivityTitle, payload.kind === "bluetooth" ? "Bluetooth" : "Wi-Fi");
       safeText(connectivitySubtitle, payload.kind === "bluetooth"
         ? "Paired and connected devices" : "Available networks");
@@ -407,7 +511,7 @@
       renderConnectivity(connectivityKind, payload.snapshot);
     },
     hideConnectivity: function () {
-      if (connectivityPanel) connectivityPanel.hidden = true;
+      hideConnectivityPanelVisual();
       connectivityFocusButtons = [];
     },
     setConnectivityStatus: function (message) {
@@ -467,7 +571,7 @@
 
   document.documentElement.classList.add("overlay-runtime");
   window.overlayUI.setFocus({ action: "return" });
-  if (window.chrome && window.chrome.webview) {
+  if (window.chrome && window.chrome.webview && window.location.hostname === "overlay.local") {
     window.chrome.webview.postMessage({ type: "ready" });
   }
 }());

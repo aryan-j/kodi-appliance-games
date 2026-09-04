@@ -8,10 +8,10 @@
 :root {
   /* ---- Color: surfaces ---- */
   --color-bg: #050506;
-  --color-panel: rgba(15, 15, 17, 0.86);
-  --color-group: rgba(255, 255, 255, 0.045);
-  --color-overlay-dim-1: rgba(3, 4, 8, 0.62);
-  --color-overlay-dim-2: rgba(3, 4, 8, 0.42);
+  --color-panel: rgba(17, 18, 22, 0.9);
+  --color-group: rgba(255, 255, 255, 0.055);
+  --color-overlay-dim-1: rgba(3, 4, 8, 0.7);
+  --color-overlay-dim-2: rgba(3, 4, 8, 0.34);
   --color-tray-bg: rgba(10, 10, 12, 0.55);
   --color-tray-border: rgba(255, 255, 255, 0.12);
 
@@ -22,8 +22,10 @@
   --color-fg-muted-2: rgba(245, 245, 246, 0.45);
 
   /* ---- Color: interactive ---- */
-  --color-focus-bg: #f2f2f3;
-  --color-focus-text: #15151a;
+  --color-focus-bg: #f5f6f8;
+  --color-focus-text: #15161a;
+  --color-accent: #81e2ae;
+  --color-danger: #ff9d9d;
   --color-track: rgba(255, 255, 255, 0.14);
   --color-switch-off: rgba(255, 255, 255, 0.16);
   --color-switch-on: #34c759;              /* standard modern "on" green */
@@ -96,9 +98,9 @@
   --opacity-dim-background: 1;
 
   /* ---- Transitions ---- */
-  --transition-fast: 120ms ease;
-  --transition-medium: 220ms ease;
-  --transition-knob: 140ms ease;
+  --transition-fast: 140ms cubic-bezier(0.2, 0.8, 0.2, 1);
+  --transition-medium: 220ms cubic-bezier(0.2, 0.8, 0.2, 1);
+  --transition-knob: 160ms cubic-bezier(0.2, 0.8, 0.2, 1);
 
   /* ---- Component sizes ---- */
   --stage-width: 120rem;         /* 1920px reference canvas */
@@ -106,29 +108,29 @@
   --stage-padding-x: var(--space-11);
   --header-padding-top: var(--space-10);
 
-  --control-panel-width: 30rem;   /* 480px */
-  --control-panel-height: 39rem;  /* 624px */
+  --control-panel-width: 34rem;   /* 544px */
+  --control-panel-height: 41rem;  /* 656px */
   --control-panel-padding: var(--space-6);
 
   --art-column-width: 26.25rem;  /* 420px */
   --poster-height: 39.375rem;    /* 630px */
   --stats-card-height: 6rem;     /* 96px */
 
-  --row-height: 2.75rem;   /* 44px */
+  --row-height: 2.875rem;   /* 46px */
   --row-radius: var(--radius-md);
   --row-icon-size: 1.25rem; /* 20px */
   --chevron-size: 1rem;     /* 16px */
 
-  --group-radius: var(--radius-lg);
-  --group-padding-y: var(--space-2);
-  --group-padding-x: var(--space-3);
+  --group-radius: var(--radius-xl);
+  --group-padding-y: var(--space-3);
+  --group-padding-x: var(--space-4);
   --group-row-gap: 0.1875rem; /* 3px */
 
   --switch-width: 2.625rem; /* 42px */
   --switch-height: 1.5rem;  /* 24px */
   --switch-knob-size: 1.125rem; /* 18px */
 
-  --volume-track-width: 5.25rem; /* 84px */
+  --volume-track-width: 8rem; /* 128px */
   --volume-track-height: 0.375rem; /* 6px */
 
   --face-glyph-size: 2.125rem;    /* 34px */

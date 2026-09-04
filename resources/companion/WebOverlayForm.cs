@@ -32,15 +32,11 @@ namespace KodiAppliance
         private readonly FormsTimer metadataTimer;
         private readonly JavaScriptSerializer serializer = new JavaScriptSerializer();
         private readonly string[][] navigationRows = {
-            new[] { "return" },
-            new[] { "exit" },
+            new[] { "return", "exit" },
             new[] { "volume" },
-            new[] { "mute" },
             new[] { "wifi", "wifiDetails" },
             new[] { "bluetooth", "bluetoothDetails" },
-            new[] { "sleep" },
-            new[] { "restart" },
-            new[] { "shutdown" }
+            new[] { "sleep", "restart", "shutdown" }
         };
         private int focusRow;
         private int focusColumn;
@@ -350,6 +346,7 @@ namespace KodiAppliance
             }
             if (action == "return") HideOverlay();
             else if (action == "exit") ShowConfirmation("Exit " + gameTitle + "?", "exit");
+            else if (action == "volume") ToggleMute();
             else if (action == "volumeDown") AdjustVolume(-5);
             else if (action == "volumeUp") AdjustVolume(5);
             else if (action == "mute") ToggleMute();
