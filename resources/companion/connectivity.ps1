@@ -202,7 +202,9 @@ function Get-WifiSnapshot {
         adapter = $displayAdapter
         signal = $signal
         linkSpeed = $displayLinkSpeed
-        networks = Get-WifiNetworks
+        # Keep the JSON shape stable when only one access point is visible;
+        # the WebView expects a collection even for a singleton result.
+        networks = @(Get-WifiNetworks)
     }
 }
 
