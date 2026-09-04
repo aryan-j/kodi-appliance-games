@@ -53,6 +53,17 @@
                 <span class="control-row-copy"><span class="control-row-label">Exit game</span><span class="control-row-hint">Close the current session</span></span>
                 <svg class="chevron" viewBox="0 0 24 24" fill="none"><path d="M9 5l7 7-7 7" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg>
               </button>
+              <section class="power-prompt exit-prompt" hidden role="dialog" aria-live="polite" aria-label="Confirm exit game">
+                <div class="power-prompt-copy">
+                  <p class="power-prompt-eyebrow">EXIT GAME?</p>
+                  <p class="power-prompt-title">Exit this session?</p>
+                  <p class="power-prompt-subtitle">Your current session will close.</p>
+                </div>
+                <div class="power-prompt-actions">
+                  <button type="button" class="power-prompt-button" data-exit-prompt-action="confirmNo">Cancel</button>
+                  <button type="button" class="power-prompt-button power-prompt-button--confirm" data-exit-prompt-action="confirmYes">Exit game</button>
+                </div>
+              </section>
             </div>
 
             <div class="control-group control-group--audio" aria-label="Audio">

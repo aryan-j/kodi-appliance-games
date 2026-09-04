@@ -13,6 +13,7 @@
   const poster = stage.querySelector(".poster-image");
   const statValues = stage.querySelectorAll(".stat-value");
   const groups = stage.querySelectorAll(".control-group");
+  const controlPanel = stage.querySelector(".control-panel");
   const volumeFill = stage.querySelector(".volume-fill");
   const volumeThumb = stage.querySelector(".volume-thumb");
   const volumeValue = stage.querySelector(".volume-value");
@@ -26,12 +27,17 @@
   const outputDeviceList = stage.querySelector(".output-device-list");
   const outputDeviceStatus = stage.querySelector(".output-device-status");
   const outputDeviceClose = stage.querySelector(".output-device-close");
+  const gameGroup = stage.querySelector(".control-group--game");
   const powerGroup = stage.querySelector(".control-group--power");
   const powerGrid = stage.querySelector(".power-grid");
-  const powerPrompt = stage.querySelector(".power-prompt");
+  const powerPrompt = stage.querySelector(".control-group--power .power-prompt");
   const powerPromptTitle = stage.querySelector(".power-prompt-title");
   const powerPromptSubtitle = stage.querySelector(".power-prompt-subtitle");
   const powerPromptButtons = stage.querySelectorAll("[data-power-prompt-action]");
+  const exitPrompt = stage.querySelector(".exit-prompt");
+  const exitPromptTitle = exitPrompt ? exitPrompt.querySelector(".power-prompt-title") : null;
+  const exitPromptSubtitle = exitPrompt ? exitPrompt.querySelector(".power-prompt-subtitle") : null;
+  const exitPromptButtons = stage.querySelectorAll("[data-exit-prompt-action]");
   const connectivityPanel = stage.querySelector(".connectivity-panel");
   const connectivityTitle = stage.querySelector(".connectivity-title");
   const connectivitySubtitle = stage.querySelector(".connectivity-subtitle");
@@ -119,6 +125,12 @@
   powerPromptButtons.forEach(function (button) {
     button.addEventListener("click", function () {
       sendAction(button.getAttribute("data-power-prompt-action"));
+    });
+  });
+
+  exitPromptButtons.forEach(function (button) {
+    button.addEventListener("click", function () {
+      sendAction(button.getAttribute("data-exit-prompt-action"));
     });
   });
 
@@ -213,7 +225,7 @@
       return;
     }
     if (action === "exit") {
-      window.overlayUI.showConfirmation({ title: "Exit Galacticare?", focusedAction: "confirmNo" });
+      window.overlayUI.showPowerPrompt({ action: "exit", title: "Exit Galacticare?", focusedAction: "confirmNo" });
       return;
     }
     if (action === "sleep" || action === "restart" || action === "shutdown") {
@@ -259,6 +271,7 @@
       window.clearTimeout(connectivityHideTimer);
       connectivityHideTimer = null;
     }
+    if (controlPanel) controlPanel.classList.add("is-connectivity-open");
     connectivityPanel.hidden = false;
     connectivityPanel.classList.remove("is-leaving");
     connectivityPanel.classList.remove("is-visible");
@@ -269,6 +282,7 @@
 
   function hideConnectivityPanelVisual() {
     if (!connectivityPanel) return;
+    if (controlPanel) controlPanel.classList.remove("is-connectivity-open");
     connectivityPanel.classList.remove("is-visible");
     connectivityPanel.classList.add("is-leaving");
     if (connectivityHideTimer) window.clearTimeout(connectivityHideTimer);
@@ -570,51 +584,84 @@
 
   let powerPromptHideTimer = null;
 
-  function setPowerPromptFocus(action) {
-    powerPromptButtons.forEach(function (button) {
-      button.classList.toggle("is-focused", button.getAttribute("data-power-prompt-action") === action);
+  function setPowerPromptFocus(buttons, action, attribute) {
+    (buttons || []).forEach(function (button) {
+      button.classList.toggle("is-focused", button.getAttribute(attribute) === action);
     });
   }
 
   function showPowerPromptVisual(payload) {
-    if (!powerPrompt || !powerGrid) return;
+    payload = payload || {};
+    const action = payload.action;
+    const isExitPrompt = action === "exit";
+    const prompt = isExitPrompt ? exitPrompt : powerPrompt;
+    if (!prompt || (!isExitPrompt && !powerGrid)) return;
     if (powerPromptHideTimer) {
       window.clearTimeout(powerPromptHideTimer);
       powerPromptHideTimer = null;
     }
-    const action = payload && payload.action;
-    Object.keys(elements).forEach(function (name) {
-      if (elements[name] && elements[name].classList.contains("power-tile"))
-        elements[name].classList.toggle("is-expanded", name === action);
+
+    [powerPrompt, exitPrompt].forEach(function (surface) {
+      if (!surface) return;
+      surface.hidden = true;
+      surface.classList.remove("is-visible", "is-leaving");
     });
-    powerGrid.classList.add("is-prompt-open");
-    if (powerGroup) powerGroup.classList.add("is-prompt-open");
-    safeText(powerPromptTitle, payload && payload.title ? payload.title : "Are you sure?");
-    safeText(powerPromptSubtitle, "Choose Cancel or Continue to confirm.");
-    const focusedAction = payload && payload.focusedAction === "confirmYes" ? "confirmYes" : "confirmNo";
-    setPowerPromptFocus(focusedAction);
-    powerPrompt.hidden = false;
-    powerPrompt.classList.remove("is-leaving");
-    powerPrompt.classList.remove("is-visible");
+    if (powerGrid) powerGrid.classList.remove("is-prompt-open");
+    if (powerGroup) powerGroup.classList.remove("is-prompt-open");
+    if (gameGroup) gameGroup.classList.remove("is-prompt-open");
+    Object.keys(elements).forEach(function (name) {
+      if (elements[name]) elements[name].classList.remove("is-expanded");
+    });
+
+    const focusedAction = payload.focusedAction === "confirmYes" ? "confirmYes" : "confirmNo";
+    if (isExitPrompt) {
+      if (gameGroup) gameGroup.classList.add("is-prompt-open");
+      if (elements.exit) elements.exit.classList.add("is-expanded");
+      safeText(exitPromptTitle, payload.title || "Exit this session?");
+      safeText(exitPromptSubtitle, "Your current session will close.");
+      setPowerPromptFocus(exitPromptButtons, focusedAction, "data-exit-prompt-action");
+    } else {
+      Object.keys(elements).forEach(function (name) {
+        if (elements[name] && elements[name].classList.contains("power-tile"))
+          elements[name].classList.toggle("is-expanded", name === action);
+      });
+      powerGrid.classList.add("is-prompt-open");
+      if (powerGroup) powerGroup.classList.add("is-prompt-open");
+      safeText(powerPromptTitle, payload.title || "Are you sure?");
+      safeText(powerPromptSubtitle, "Choose Cancel or Continue to confirm.");
+      setPowerPromptFocus(powerPromptButtons, focusedAction, "data-power-prompt-action");
+    }
+
+    prompt.hidden = false;
+    prompt.classList.remove("is-leaving");
+    prompt.classList.remove("is-visible");
     window.requestAnimationFrame(function () {
-      if (powerPrompt) powerPrompt.classList.add("is-visible");
+      if (prompt) prompt.classList.add("is-visible");
     });
   }
 
   function hidePowerPromptVisual() {
-    if (!powerPrompt) return;
-    powerPrompt.classList.remove("is-visible");
-    powerPrompt.classList.add("is-leaving");
+    [powerPrompt, exitPrompt].forEach(function (surface) {
+      if (!surface) return;
+      surface.classList.remove("is-visible");
+      surface.classList.add("is-leaving");
+    });
     if (powerGrid) powerGrid.classList.remove("is-prompt-open");
     if (powerGroup) powerGroup.classList.remove("is-prompt-open");
+    if (gameGroup) gameGroup.classList.remove("is-prompt-open");
     Object.keys(elements).forEach(function (name) {
       if (elements[name]) elements[name].classList.remove("is-expanded");
     });
     if (powerPromptHideTimer) window.clearTimeout(powerPromptHideTimer);
     powerPromptHideTimer = window.setTimeout(function () {
-      if (!powerPrompt || powerPrompt.classList.contains("is-visible")) return;
-      powerPrompt.hidden = true;
-      powerPrompt.classList.remove("is-leaving");
+      if (powerPrompt && !powerPrompt.classList.contains("is-visible")) {
+        powerPrompt.hidden = true;
+        powerPrompt.classList.remove("is-leaving");
+      }
+      if (exitPrompt && !exitPrompt.classList.contains("is-visible")) {
+        exitPrompt.hidden = true;
+        exitPrompt.classList.remove("is-leaving");
+      }
       powerPromptHideTimer = null;
     }, 220);
   }

@@ -580,13 +580,13 @@ namespace KodiAppliance
                 { "focusedAction", confirmationYesFocused ? "confirmYes" : "confirmNo" }
             };
             Execute("window.overlayUI." +
-                (IsPowerAction(pendingAction) ? "showPowerPrompt" : "showConfirmation") + "(" +
+                (IsInlineConfirmationAction(pendingAction) ? "showPowerPrompt" : "showConfirmation") + "(" +
                 serializer.Serialize(payload) + ");");
         }
 
-        private static bool IsPowerAction(string action)
+        private static bool IsInlineConfirmationAction(string action)
         {
-            return action == "sleep" || action == "restart" || action == "shutdown";
+            return action == "exit" || action == "sleep" || action == "restart" || action == "shutdown";
         }
 
         private string ConfirmationTitle()

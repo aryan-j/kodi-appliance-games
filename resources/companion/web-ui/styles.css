@@ -1203,7 +1203,8 @@ button { font: inherit; }
 
 .connectivity-panel {
   border: 1px solid rgba(255, 255, 255, 0.1);
-  background: linear-gradient(180deg, rgba(24, 25, 30, 0.985), rgba(15, 16, 20, 0.98));
+  z-index: 40;
+  background: #17181d;
   opacity: 0;
   pointer-events: none;
   transform: translateX(1rem) scale(0.985);
@@ -1236,6 +1237,7 @@ button { font: inherit; }
 
 .confirm-panel {
   border: 1px solid rgba(255, 255, 255, 0.09);
+  background: #17181d;
   animation: overlay-panel-in 220ms cubic-bezier(0.2, 0.8, 0.2, 1) both;
 }
 
@@ -1274,6 +1276,22 @@ button { font: inherit; }
 .control-group--audio {
   position: relative;
   z-index: 7;
+}
+
+.control-group {
+  transition: opacity var(--transition-medium), transform var(--transition-medium);
+}
+
+.control-panel.is-connectivity-open > .control-group {
+  z-index: 0;
+  opacity: 0;
+  pointer-events: none;
+  transform: translateX(-0.75rem);
+  visibility: hidden;
+}
+
+.control-panel.is-connectivity-open > .connectivity-panel {
+  z-index: 40;
 }
 
 .volume-row {
@@ -1610,6 +1628,10 @@ button { font: inherit; }
   position: relative;
 }
 
+.control-group--game {
+  position: relative;
+}
+
 .power-tile {
   min-height: 5.25rem;
   gap: 0.375rem;
@@ -1658,7 +1680,8 @@ button { font: inherit; }
   padding: 0 0.75rem;
   border: 1px solid transparent;
   border-radius: var(--radius-md);
-  background: rgba(129, 226, 174, 0.08);
+  background: #1a1c22;
+  box-shadow: 0 1rem 2rem rgba(0, 0, 0, 0.45);
   opacity: 0;
   transform: translateY(-0.5rem);
   transition: max-height var(--transition-medium), margin-top var(--transition-medium), padding var(--transition-medium), opacity var(--transition-medium), transform var(--transition-medium), border-color var(--transition-medium);
@@ -1671,6 +1694,19 @@ button { font: inherit; }
   border-color: rgba(129, 226, 174, 0.2);
   opacity: 1;
   transform: translateY(0);
+}
+
+.control-group--game.is-prompt-open .control-row:not(.is-expanded) {
+  opacity: 0.4;
+  pointer-events: none;
+  transform: scale(0.97);
+}
+
+.control-group--game.is-prompt-open .control-row.is-expanded {
+  min-height: 3.5rem;
+  border-color: rgba(255, 255, 255, 0.26);
+  box-shadow: 0 1rem 2rem rgba(0, 0, 0, 0.24), 0 0 0 0.125rem rgba(255, 157, 157, 0.14);
+  transform: translateY(-0.125rem) scale(1.01);
 }
 
 .power-prompt-copy { min-width: 0; }
