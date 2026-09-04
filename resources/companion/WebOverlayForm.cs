@@ -34,6 +34,7 @@ namespace KodiAppliance
         private readonly string[][] navigationRows = {
             new[] { "return", "exit" },
             new[] { "volume" },
+            new[] { "outputDevice" },
             new[] { "wifi", "wifiDetails" },
             new[] { "bluetooth", "bluetoothDetails" },
             new[] { "sleep", "restart", "shutdown" }
@@ -50,6 +51,7 @@ namespace KodiAppliance
         private bool muted;
         private bool wifiEnabled;
         private bool bluetoothEnabled;
+        private bool outputDevicePanelVisible;
         private bool connectivityPanelVisible;
         private bool connectivitySnapshotInFlight;
         private bool connectivityActionInFlight;
@@ -186,7 +188,15 @@ namespace KodiAppliance
                     if (!IsSafeSsid(ssid)) return;
                     ssid = ssid.Trim();
                 }
-                HandleAction(action, ssid);
+                string deviceId = null;
+                if (message.ContainsKey("deviceId"))
+                {
+                    object deviceIdValue = message["deviceId"];
+                    deviceId = deviceIdValue as string;
+                    if (!IsSafeDeviceId(deviceId)) return;
+                    deviceId = deviceId.Trim();
+                }
+                HandleAction(action, ssid, deviceId);
             }
             catch { }
         }
@@ -198,6 +208,18 @@ namespace KodiAppliance
             {
                 if (character < 0x20 || character == 0x7F ||
                     character == '\"' || character == '\'' ||
+                    character == '\r' || character == '\n') return false;
+            }
+            return true;
+        }
+
+        private static bool IsSafeDeviceId(string deviceId)
+        {
+            if (String.IsNullOrWhiteSpace(deviceId) || deviceId.Length > 1024)
+                return false;
+            foreach (char character in deviceId)
+            {
+                if (character < 0x20 || character == 0x7F ||
                     character == '\r' || character == '\n') return false;
             }
             return true;
@@ -218,6 +240,7 @@ namespace KodiAppliance
                 { "fanartUrl", ArtworkUrl("fanart.local", fanart) },
                 { "volume", SystemAudio.GetVolume() },
                 { "muted", muted },
+                { "outputDevices", SystemAudio.GetOutputDeviceSnapshot() },
                 { "wifiEnabled", wifiEnabled },
                 { "bluetoothEnabled", bluetoothEnabled },
                 { "focusedAction", CurrentAction() }
@@ -306,6 +329,14 @@ namespace KodiAppliance
                 ShowConfirmationVisual();
                 return;
             }
+            if (outputDevicePanelVisible)
+            {
+                if (vertical < 0 || horizontal < 0)
+                    Execute("window.overlayUI.moveOutputDeviceFocus('up');");
+                else if (vertical > 0 || horizontal > 0)
+                    Execute("window.overlayUI.moveOutputDeviceFocus('down');");
+                return;
+            }
             if (vertical != 0)
             {
                 int row = (focusRow + vertical + navigationRows.Length)
@@ -325,8 +356,15 @@ namespace KodiAppliance
             }
         }
 
-        private void HandleAction(string action, string ssid = null)
+        private void HandleAction(string action, string ssid = null, string deviceId = null)
         {
+            if (outputDevicePanelVisible)
+            {
+                if (action == "outputDeviceClose") HideOutputDevicePanel();
+                else if (action == "outputDeviceSelect" && IsSafeDeviceId(deviceId))
+                    SelectOutputDevice(deviceId.Trim());
+                return;
+            }
             if (connectivityPanelVisible)
             {
                 if (action == "connectivityClose") HideConnectivityPanel();
@@ -347,6 +385,7 @@ namespace KodiAppliance
             if (action == "return") HideOverlay();
             else if (action == "exit") ShowConfirmation("Exit " + gameTitle + "?", "exit");
             else if (action == "volume") ToggleMute();
+            else if (action == "outputDevice") ShowOutputDevicePanel();
             else if (action == "volumeDown") AdjustVolume(-5);
             else if (action == "volumeUp") AdjustVolume(5);
             else if (action == "mute") ToggleMute();
@@ -365,6 +404,11 @@ namespace KodiAppliance
             {
                 if (confirmationYesFocused) ConfirmPendingAction();
                 else HideConfirmation();
+                return;
+            }
+            if (outputDevicePanelVisible)
+            {
+                Execute("window.overlayUI.activateOutputDeviceFocus();");
                 return;
             }
             HandleAction(CurrentAction());
@@ -479,6 +523,33 @@ namespace KodiAppliance
             SetFocus(focusRow, focusColumn);
         }
 
+        private void ShowOutputDevicePanel()
+        {
+            outputDevicePanelVisible = true;
+            Execute("window.overlayUI.showOutputDevices(" +
+                serializer.Serialize(SystemAudio.GetOutputDeviceSnapshot()) + ");");
+        }
+
+        private void HideOutputDevicePanel()
+        {
+            if (!outputDevicePanelVisible) return;
+            outputDevicePanelVisible = false;
+            Execute("window.overlayUI.hideOutputDevices();");
+            SetFocus(focusRow, focusColumn);
+        }
+
+        private void SelectOutputDevice(string deviceId)
+        {
+            if (!outputDevicePanelVisible || !IsSafeDeviceId(deviceId)) return;
+            bool selected = SystemAudio.SetDefaultOutputDevice(deviceId);
+            Execute("window.overlayUI.setOutputDeviceStatus(" +
+                serializer.Serialize(selected
+                    ? "Output device updated"
+                    : "Could not switch output device") + ");");
+            Execute("window.overlayUI.setOutputDevices(" +
+                serializer.Serialize(SystemAudio.GetOutputDeviceSnapshot()) + ");");
+        }
+
         private void OpenConnectivitySettings(RadioKind kind)
         {
             string uri = kind == RadioKind.WiFi
@@ -505,10 +576,17 @@ namespace KodiAppliance
         {
             Dictionary<string, object> payload = new Dictionary<string, object> {
                 { "title", title ?? ConfirmationTitle() },
+                { "action", pendingAction ?? "" },
                 { "focusedAction", confirmationYesFocused ? "confirmYes" : "confirmNo" }
             };
-            Execute("window.overlayUI.showConfirmation(" +
+            Execute("window.overlayUI." +
+                (IsPowerAction(pendingAction) ? "showPowerPrompt" : "showConfirmation") + "(" +
                 serializer.Serialize(payload) + ");");
+        }
+
+        private static bool IsPowerAction(string action)
+        {
+            return action == "sleep" || action == "restart" || action == "shutdown";
         }
 
         private string ConfirmationTitle()
@@ -575,6 +653,20 @@ namespace KodiAppliance
                 return;
             }
             if (!overlayVisible) return;
+            if (outputDevicePanelVisible)
+            {
+                if ((pressed & Native.B) != 0)
+                {
+                    HideOutputDevicePanel();
+                    return;
+                }
+                if ((pressed & Native.DPadUp) != 0) MoveFocus(0, -1);
+                if ((pressed & Native.DPadDown) != 0) MoveFocus(0, 1);
+                if ((pressed & Native.DPadLeft) != 0) MoveFocus(-1, 0);
+                if ((pressed & Native.DPadRight) != 0) MoveFocus(1, 0);
+                if ((pressed & Native.A) != 0) ActivateCurrent();
+                return;
+            }
             if (connectivityPanelVisible)
             {
                 if ((pressed & Native.B) != 0)
@@ -660,6 +752,7 @@ namespace KodiAppliance
 
         private void HideOverlay()
         {
+            if (outputDevicePanelVisible) HideOutputDevicePanel();
             if (connectivityPanelVisible) HideConnectivityPanel();
             overlayVisible = false;
             Opacity = 0;

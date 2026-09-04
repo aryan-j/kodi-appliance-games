@@ -58,10 +58,23 @@
             <div class="control-group control-group--audio" aria-label="Audio">
               <div class="control-group-heading"><p class="control-group-label">Audio</p><span class="control-group-caption">Click volume to mute</span></div>
               <button type="button" class="control-row volume-row" aria-label="Volume 66 percent. Click to mute or unmute.">
-                <span class="control-row-icon"><svg viewBox="0 0 24 24" fill="none"><path d="M4 9v6h4l5 4V5L8 9H4Z" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/><path d="M17 9c1.6 1.6 1.6 4.4 0 6M19.5 6.5c3 3 3 8 0 11" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg></span>
-                <span class="control-row-copy"><span class="control-row-label">Volume</span><span class="control-row-hint volume-state">Click to mute / unmute</span></span>
-                <span class="volume-control"><span class="volume-meter"><span class="volume-fill" style="width:66%"></span></span><span class="volume-value">66%</span></span>
+                <span class="control-row-icon volume-icon"><img class="volume-icon-image" src="assets/icons/volume.svg" alt=""></span>
+                <span class="control-row-copy"><span class="control-row-label">Volume</span><span class="control-row-hint volume-state">Click to mute / unmute</span><span class="volume-state-badge" data-volume-badge>Sound on</span></span>
+                <span class="volume-control"><span class="volume-meter"><span class="volume-fill" style="width:66%"></span><span class="volume-thumb" aria-hidden="true"></span></span><span class="volume-value">66%</span></span>
               </button>
+              <button type="button" class="control-row output-device-row" aria-label="Output device. Choose where game audio plays.">
+                <span class="control-row-icon output-device-icon"><img src="assets/icons/volume.svg" alt=""></span>
+                <span class="control-row-copy"><span class="control-row-label">Output device</span><span class="control-row-hint output-device-name">Choose where game audio plays</span></span>
+                <span class="output-device-cta"><span class="output-device-count">Choose</span><svg class="chevron" viewBox="0 0 24 24" fill="none"><path d="M9 5l7 7-7 7" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg></span>
+              </button>
+              <section class="output-device-panel" hidden aria-label="Output devices">
+                <div class="output-device-panel-header">
+                  <div><p class="output-device-panel-eyebrow">OUTPUT</p><h3 class="output-device-panel-title">Choose a device</h3><p class="output-device-panel-subtitle">Game audio follows the selected output.</p></div>
+                  <button type="button" class="output-device-close" data-output-device-action="outputDeviceClose" aria-label="Close output device selection">Close</button>
+                </div>
+                <div class="output-device-list" aria-live="polite"></div>
+                <p class="output-device-status" aria-live="polite"></p>
+              </section>
             </div>
 
             <div class="control-group control-group--connections" aria-label="Connections">
@@ -83,16 +96,27 @@
             <div class="control-group control-group--power" aria-label="Power">
               <div class="control-group-heading"><p class="control-group-label">Power</p><span class="control-group-caption">System controls</span></div>
               <div class="power-grid">
-                <button type="button" class="power-tile">
+                <button type="button" class="power-tile" data-power-action="sleep">
                   <span class="power-icon"><svg viewBox="0 0 24 24" fill="none"><path d="M20 13.3A8.5 8.5 0 1 1 10.7 4a7 7 0 0 0 9.3 9.3Z" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/></svg></span><span class="power-tile-label">Sleep</span><span class="power-tile-hint">Suspend</span>
                 </button>
-                <button type="button" class="power-tile">
+                <button type="button" class="power-tile" data-power-action="restart">
                   <span class="power-icon"><svg viewBox="0 0 24 24" fill="none"><path d="M20 12a8 8 0 1 1-2.6-5.9" stroke="currentColor" stroke-width="2.1" stroke-linecap="round"/><path d="M20 3v5h-5" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round"/></svg></span><span class="power-tile-label">Restart</span><span class="power-tile-hint">Reboot</span>
                 </button>
-                <button type="button" class="power-tile power-tile--danger">
+                <button type="button" class="power-tile power-tile--danger" data-power-action="shutdown">
                   <span class="power-icon"><svg viewBox="0 0 24 24" fill="none"><path d="M12 3v8" stroke="currentColor" stroke-width="2.1" stroke-linecap="round"/><path d="M7 5.5a8 8 0 1 0 10 0" stroke="currentColor" stroke-width="2.1" stroke-linecap="round"/></svg></span><span class="power-tile-label">Shut down</span><span class="power-tile-hint">Power off</span>
                 </button>
               </div>
+              <section class="power-prompt" hidden role="dialog" aria-live="polite" aria-label="Confirm power action">
+                <div class="power-prompt-copy">
+                  <p class="power-prompt-eyebrow">READY?</p>
+                  <p class="power-prompt-title">Are you sure?</p>
+                  <p class="power-prompt-subtitle">This will end the current session.</p>
+                </div>
+                <div class="power-prompt-actions">
+                  <button type="button" class="power-prompt-button" data-power-prompt-action="confirmNo">Cancel</button>
+                  <button type="button" class="power-prompt-button power-prompt-button--confirm" data-power-prompt-action="confirmYes">Continue</button>
+                </div>
+              </section>
             </div>
 
             <!-- The expanded connectivity surface stays inside this existing

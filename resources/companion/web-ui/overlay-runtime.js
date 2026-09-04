@@ -14,9 +14,24 @@
   const statValues = stage.querySelectorAll(".stat-value");
   const groups = stage.querySelectorAll(".control-group");
   const volumeFill = stage.querySelector(".volume-fill");
+  const volumeThumb = stage.querySelector(".volume-thumb");
   const volumeValue = stage.querySelector(".volume-value");
+  const volumeIcon = stage.querySelector(".volume-icon-image");
+  const volumeBadge = stage.querySelector("[data-volume-badge]");
   const connectionStates = stage.querySelectorAll("[data-connection-status]");
   const volumeState = stage.querySelector(".volume-state");
+  const outputDeviceName = stage.querySelector(".output-device-name");
+  const outputDeviceCount = stage.querySelector(".output-device-count");
+  const outputDevicePanel = stage.querySelector(".output-device-panel");
+  const outputDeviceList = stage.querySelector(".output-device-list");
+  const outputDeviceStatus = stage.querySelector(".output-device-status");
+  const outputDeviceClose = stage.querySelector(".output-device-close");
+  const powerGroup = stage.querySelector(".control-group--power");
+  const powerGrid = stage.querySelector(".power-grid");
+  const powerPrompt = stage.querySelector(".power-prompt");
+  const powerPromptTitle = stage.querySelector(".power-prompt-title");
+  const powerPromptSubtitle = stage.querySelector(".power-prompt-subtitle");
+  const powerPromptButtons = stage.querySelectorAll("[data-power-prompt-action]");
   const connectivityPanel = stage.querySelector(".connectivity-panel");
   const connectivityTitle = stage.querySelector(".connectivity-title");
   const connectivitySubtitle = stage.querySelector(".connectivity-subtitle");
@@ -30,11 +45,20 @@
   const actionRows = [
     ["return", "exit"],
     ["volume"],
+    ["outputDevice"],
     ["wifi", "wifiDetails"],
     ["bluetooth", "bluetoothDetails"],
     ["sleep", "restart", "shutdown"]
   ];
   const elements = Object.create(null);
+  let demoOutputSnapshot = {
+    defaultId: "living-room",
+    devices: [
+      { id: "living-room", name: "Living room soundbar", type: "HDMI · 5.1 audio", isDefault: true },
+      { id: "gaming-headset", name: "Wireless gaming headset", type: "Bluetooth · Stereo", isDefault: false },
+      { id: "controller-audio", name: "DualSense Wireless Controller", type: "USB · Headset output", isDefault: false }
+    ]
+  };
 
   const groupButtonSets = [
     groups[0] ? groups[0].querySelectorAll("button") : [],
@@ -44,12 +68,12 @@
   ];
   const orderedElements = [
     groupButtonSets[0][0], groupButtonSets[0][1],
-    groupButtonSets[1][0],
+    groupButtonSets[1][0], groupButtonSets[1][1],
     groupButtonSets[2][0], groupButtonSets[2][1],
     groupButtonSets[3][0], groupButtonSets[3][1], groupButtonSets[3][2]
   ];
   const orderedActions = [
-    "return", "exit", "volume", "wifi", "bluetooth",
+    "return", "exit", "volume", "outputDevice", "wifi", "bluetooth",
     "sleep", "restart", "shutdown"
   ];
   const detailElements = stage.querySelectorAll("[data-connectivity-details]");
@@ -86,6 +110,18 @@
     });
   });
 
+  if (outputDeviceClose) {
+    outputDeviceClose.addEventListener("click", function () {
+      sendAction("outputDeviceClose");
+    });
+  }
+
+  powerPromptButtons.forEach(function (button) {
+    button.addEventListener("click", function () {
+      sendAction(button.getAttribute("data-power-prompt-action"));
+    });
+  });
+
   actionRows.forEach(function (row, rowIndex) {
     row.forEach(function (action, columnIndex) {
       const element = elements[action];
@@ -98,6 +134,7 @@
   function sendAction(action, data) {
     const message = { type: "action", action: action };
     if (data && typeof data.ssid === "string") message.ssid = data.ssid;
+    if (data && typeof data.deviceId === "string") message.deviceId = data.deviceId;
     const hostBridgeAvailable = window.chrome && window.chrome.webview && window.location.hostname === "overlay.local";
     if (hostBridgeAvailable) {
       window.chrome.webview.postMessage(message);
@@ -114,6 +151,28 @@
     if (action === "volume") {
       const muted = !elements.volume.classList.contains("is-muted");
       window.overlayUI.setVolume({ value: 66, muted: muted });
+      return;
+    }
+    if (action === "outputDevice") {
+      window.overlayUI.showOutputDevices(demoOutputSnapshot);
+      return;
+    }
+    if (action === "outputDeviceClose") {
+      window.overlayUI.hideOutputDevices();
+      return;
+    }
+    if (action === "outputDeviceSelect") {
+      const selectedId = data && data.deviceId;
+      if (selectedId) {
+        demoOutputSnapshot = {
+          defaultId: selectedId,
+          devices: demoOutputSnapshot.devices.map(function (device) {
+            return Object.assign({}, device, { isDefault: device.id === selectedId });
+          })
+        };
+        window.overlayUI.setOutputDevices(demoOutputSnapshot);
+        window.overlayUI.setOutputDeviceStatus("Output device updated");
+      }
       return;
     }
     if (action === "wifi") {
@@ -159,7 +218,7 @@
     }
     if (action === "sleep" || action === "restart" || action === "shutdown") {
       const labels = { sleep: "Put this PC to sleep?", restart: "Restart this PC?", shutdown: "Shut down this PC?" };
-      window.overlayUI.showConfirmation({ title: labels[action], focusedAction: "confirmNo" });
+      window.overlayUI.showPowerPrompt({ action: action, title: labels[action], focusedAction: "confirmNo" });
       return;
     }
     if (action === "confirmNo" || action === "confirmYes") {
@@ -383,6 +442,183 @@
     if (button && typeof button.click === "function") button.click();
   }
 
+  let outputDeviceFocusIndex = 0;
+  let outputDeviceFocusButtons = [];
+  let outputDeviceHideTimer = null;
+
+  function showOutputDevicePanelVisual() {
+    if (!outputDevicePanel) return;
+    if (outputDeviceHideTimer) {
+      window.clearTimeout(outputDeviceHideTimer);
+      outputDeviceHideTimer = null;
+    }
+    outputDevicePanel.hidden = false;
+    outputDevicePanel.classList.remove("is-leaving");
+    outputDevicePanel.classList.remove("is-visible");
+    window.requestAnimationFrame(function () {
+      if (outputDevicePanel) outputDevicePanel.classList.add("is-visible");
+    });
+  }
+
+  function hideOutputDevicePanelVisual() {
+    if (!outputDevicePanel) return;
+    outputDevicePanel.classList.remove("is-visible");
+    outputDevicePanel.classList.add("is-leaving");
+    if (outputDeviceHideTimer) window.clearTimeout(outputDeviceHideTimer);
+    outputDeviceHideTimer = window.setTimeout(function () {
+      if (!outputDevicePanel || outputDevicePanel.classList.contains("is-visible")) return;
+      outputDevicePanel.hidden = true;
+      outputDevicePanel.classList.remove("is-leaving");
+      outputDeviceHideTimer = null;
+    }, 220);
+  }
+
+  function setOutputDeviceSummary(snapshot) {
+    const source = snapshot || {};
+    const devices = Array.isArray(source.devices) ? source.devices : [];
+    let selected = null;
+    devices.forEach(function (device) {
+      if (!device) return;
+      if (device.isDefault || (source.defaultId && device.id === source.defaultId)) selected = device;
+    });
+    safeText(outputDeviceName, selected
+      ? displayValue(selected.name, "Selected output")
+      : (devices.length ? "Select an output" : "No output devices found"));
+    safeText(outputDeviceCount, devices.length ? devices.length + " device" + (devices.length === 1 ? "" : "s") : "Unavailable");
+    if (elements.outputDevice) {
+      elements.outputDevice.setAttribute("aria-label", selected
+        ? "Output device. Currently " + displayValue(selected.name, "selected") + ". Choose another."
+        : "Output device. Choose where game audio plays.");
+    }
+  }
+
+  function setOutputDeviceFocus() {
+    outputDeviceFocusButtons.forEach(function (button, index) {
+      button.classList.toggle("is-focused", index === outputDeviceFocusIndex);
+    });
+  }
+
+  function renderOutputDevices(snapshot) {
+    if (!outputDeviceList) return;
+    const source = snapshot || {};
+    const devices = Array.isArray(source.devices) ? source.devices : [];
+    while (outputDeviceList.firstChild) outputDeviceList.removeChild(outputDeviceList.firstChild);
+    outputDeviceFocusButtons = [];
+    if (outputDeviceClose) outputDeviceFocusButtons.push(outputDeviceClose);
+
+    let selectedIndex = -1;
+    devices.forEach(function (device, index) {
+      if (!device || typeof device.id !== "string" || !device.id ||
+          typeof device.name !== "string" || !device.name) return;
+      const button = document.createElement("button");
+      button.type = "button";
+      button.className = "output-device-option";
+      button.dataset.deviceId = device.id;
+      const isSelected = !!device.isDefault || (source.defaultId && device.id === source.defaultId);
+      button.classList.toggle("is-selected", isSelected);
+      if (isSelected) selectedIndex = outputDeviceFocusButtons.length;
+      const copy = document.createElement("span");
+      copy.className = "output-device-option-copy";
+      const name = document.createElement("strong");
+      name.className = "output-device-option-name";
+      safeText(name, device.name);
+      const type = document.createElement("span");
+      type.className = "output-device-option-type";
+      safeText(type, displayValue(device.type, "Windows audio output"));
+      copy.appendChild(name);
+      copy.appendChild(type);
+      const state = document.createElement("span");
+      state.className = "output-device-option-state";
+      safeText(state, isSelected ? "Selected" : "Choose");
+      button.appendChild(copy);
+      button.appendChild(state);
+      button.addEventListener("click", function () {
+        sendAction("outputDeviceSelect", { deviceId: device.id });
+      });
+      outputDeviceList.appendChild(button);
+      outputDeviceFocusButtons.push(button);
+    });
+
+    if (outputDeviceFocusButtons.length === 1) {
+      const empty = document.createElement("p");
+      empty.className = "output-device-empty";
+      safeText(empty, "No active output devices found");
+      outputDeviceList.appendChild(empty);
+    }
+    setOutputDeviceSummary(source);
+    outputDeviceFocusIndex = selectedIndex >= 0 ? selectedIndex : (outputDeviceFocusButtons.length > 1 ? 1 : 0);
+    setOutputDeviceFocus();
+  }
+
+  function moveOutputDeviceFocus(direction) {
+    if (!outputDevicePanel || outputDevicePanel.hidden || outputDeviceFocusButtons.length === 0) return;
+    const delta = direction === "up" || direction === "left" ? -1 : 1;
+    outputDeviceFocusIndex = (outputDeviceFocusIndex + delta + outputDeviceFocusButtons.length) % outputDeviceFocusButtons.length;
+    setOutputDeviceFocus();
+  }
+
+  function activateOutputDeviceFocus() {
+    const button = outputDeviceFocusButtons[outputDeviceFocusIndex];
+    if (!button) return;
+    if (button === outputDeviceClose) {
+      sendAction("outputDeviceClose");
+      return;
+    }
+    const deviceId = button.dataset.deviceId;
+    if (deviceId) sendAction("outputDeviceSelect", { deviceId: deviceId });
+  }
+
+  let powerPromptHideTimer = null;
+
+  function setPowerPromptFocus(action) {
+    powerPromptButtons.forEach(function (button) {
+      button.classList.toggle("is-focused", button.getAttribute("data-power-prompt-action") === action);
+    });
+  }
+
+  function showPowerPromptVisual(payload) {
+    if (!powerPrompt || !powerGrid) return;
+    if (powerPromptHideTimer) {
+      window.clearTimeout(powerPromptHideTimer);
+      powerPromptHideTimer = null;
+    }
+    const action = payload && payload.action;
+    Object.keys(elements).forEach(function (name) {
+      if (elements[name] && elements[name].classList.contains("power-tile"))
+        elements[name].classList.toggle("is-expanded", name === action);
+    });
+    powerGrid.classList.add("is-prompt-open");
+    if (powerGroup) powerGroup.classList.add("is-prompt-open");
+    safeText(powerPromptTitle, payload && payload.title ? payload.title : "Are you sure?");
+    safeText(powerPromptSubtitle, "Choose Cancel or Continue to confirm.");
+    const focusedAction = payload && payload.focusedAction === "confirmYes" ? "confirmYes" : "confirmNo";
+    setPowerPromptFocus(focusedAction);
+    powerPrompt.hidden = false;
+    powerPrompt.classList.remove("is-leaving");
+    powerPrompt.classList.remove("is-visible");
+    window.requestAnimationFrame(function () {
+      if (powerPrompt) powerPrompt.classList.add("is-visible");
+    });
+  }
+
+  function hidePowerPromptVisual() {
+    if (!powerPrompt) return;
+    powerPrompt.classList.remove("is-visible");
+    powerPrompt.classList.add("is-leaving");
+    if (powerGrid) powerGrid.classList.remove("is-prompt-open");
+    if (powerGroup) powerGroup.classList.remove("is-prompt-open");
+    Object.keys(elements).forEach(function (name) {
+      if (elements[name]) elements[name].classList.remove("is-expanded");
+    });
+    if (powerPromptHideTimer) window.clearTimeout(powerPromptHideTimer);
+    powerPromptHideTimer = window.setTimeout(function () {
+      if (!powerPrompt || powerPrompt.classList.contains("is-visible")) return;
+      powerPrompt.hidden = true;
+      powerPrompt.classList.remove("is-leaving");
+      powerPromptHideTimer = null;
+    }, 220);
+  }
+
   if (connectivityBack) {
     connectivityBack.addEventListener("click", function () {
       sendAction("connectivityClose");
@@ -455,6 +691,7 @@
       this.setSessionTime(payload.sessionTime);
       this.setTotalPlaytime(payload.totalPlaytime);
       this.setVolume({ value: payload.volume, muted: payload.muted });
+      this.setOutputDevices(payload.outputDevices || demoOutputSnapshot);
       this.setConnectivity(payload);
       setFocus({ action: payload.focusedAction || "return" });
     },
@@ -477,7 +714,10 @@
       const value = Number.isFinite(numeric) ? Math.max(0, Math.min(100, numeric)) : 0;
       const muted = !!payload.muted;
       if (volumeFill) volumeFill.style.width = value + "%";
+      if (volumeThumb) volumeThumb.style.left = value + "%";
       safeText(volumeValue, value + "%");
+      if (volumeIcon) volumeIcon.src = muted ? "assets/icons/mute.svg" : "assets/icons/volume.svg";
+      safeText(volumeBadge, muted ? "Muted" : "Sound on");
       if (elements.volume) {
         elements.volume.classList.toggle("is-muted", muted);
         elements.volume.setAttribute(
@@ -486,6 +726,24 @@
         );
       }
       safeText(volumeState, muted ? "Muted · click to restore" : "Click to mute / unmute");
+    },
+    setOutputDevices: function (payload) {
+      payload = payload || {};
+      if (Array.isArray(payload.devices) && payload.devices.length) demoOutputSnapshot = payload;
+      renderOutputDevices(payload);
+    },
+    showOutputDevices: function (payload) {
+      payload = payload || demoOutputSnapshot;
+      showOutputDevicePanelVisual();
+      renderOutputDevices(payload);
+      safeText(outputDeviceStatus, "");
+    },
+    hideOutputDevices: function () {
+      hideOutputDevicePanelVisual();
+      outputDeviceFocusButtons = [];
+    },
+    setOutputDeviceStatus: function (message) {
+      safeText(outputDeviceStatus, message);
     },
     setConnectivity: function (payload) {
       payload = payload || {};
@@ -545,14 +803,20 @@
     },
     showConfirmation: function (payload) {
       ensureConfirmation();
+      hidePowerPromptVisual();
       safeText(confirmationTitle, payload && payload.title);
       confirmation.hidden = false;
       const yes = payload && payload.focusedAction === "confirmYes";
       confirmationYes.classList.toggle("is-focused", yes);
       confirmationNo.classList.toggle("is-focused", !yes);
     },
+    showPowerPrompt: function (payload) {
+      if (confirmation) confirmation.hidden = true;
+      showPowerPromptVisual(payload || {});
+    },
     hideConfirmation: function () {
       if (confirmation) confirmation.hidden = true;
+      hidePowerPromptVisual();
     },
     showToast: function (payload) {
       ensureToast();

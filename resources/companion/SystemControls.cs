@@ -20,8 +20,18 @@ namespace KodiAppliance
     [InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
     internal interface IMMDeviceEnumerator
     {
-        int EnumAudioEndpoints(EDataFlow dataFlow, uint stateMask, out object devices);
+        int EnumAudioEndpoints(EDataFlow dataFlow, uint stateMask,
+            out IMMDeviceCollection devices);
         int GetDefaultAudioEndpoint(EDataFlow dataFlow, ERole role, out IMMDevice device);
+    }
+
+    [ComImport]
+    [Guid("0BD7A1BE-7A1A-44DB-8397-CC5392387B5E")]
+    [InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
+    internal interface IMMDeviceCollection
+    {
+        int GetCount(out uint count);
+        int Item(uint index, out IMMDevice device);
     }
 
     [ComImport]
@@ -31,6 +41,79 @@ namespace KodiAppliance
     {
         int Activate(ref Guid interfaceId, uint context, IntPtr activationParams,
             [MarshalAs(UnmanagedType.IUnknown)] out object instance);
+        int OpenPropertyStore(uint access, out IPropertyStore properties);
+        int GetId([MarshalAs(UnmanagedType.LPWStr)] out string id);
+        int GetState(out uint state);
+    }
+
+    [ComImport]
+    [Guid("886D8EEB-8CF2-4446-8D02-CDBA1DBDCF99")]
+    [InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
+    internal interface IPropertyStore
+    {
+        int GetCount(out uint count);
+        int GetAt(uint index, out PROPERTYKEY key);
+        int GetValue(ref PROPERTYKEY key, out PROPVARIANT value);
+        int SetValue(ref PROPERTYKEY key, ref PROPVARIANT value);
+        int Commit();
+    }
+
+    [ComImport]
+    [Guid("870AF99C-171D-4F9E-AF0D-E63DF40C2BC9")]
+    internal class PolicyConfigClientComObject { }
+
+    [ComImport]
+    [Guid("F8679F50-850A-41CF-9C72-430F290290C8")]
+    [InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
+    internal interface IPolicyConfig
+    {
+        int GetMixFormat([MarshalAs(UnmanagedType.LPWStr)] string deviceId,
+            IntPtr format);
+        int GetDeviceFormat([MarshalAs(UnmanagedType.LPWStr)] string deviceId,
+            [MarshalAs(UnmanagedType.Bool)] bool defaultFormat, IntPtr format);
+        int ResetDeviceFormat([MarshalAs(UnmanagedType.LPWStr)] string deviceId);
+        int SetDeviceFormat([MarshalAs(UnmanagedType.LPWStr)] string deviceId,
+            IntPtr endpointFormat, IntPtr mixFormat);
+        int GetProcessingPeriod([MarshalAs(UnmanagedType.LPWStr)] string deviceId,
+            [MarshalAs(UnmanagedType.Bool)] bool defaultFormat,
+            IntPtr defaultPeriod, IntPtr minimumPeriod);
+        int SetProcessingPeriod([MarshalAs(UnmanagedType.LPWStr)] string deviceId,
+            IntPtr period);
+        int GetShareMode([MarshalAs(UnmanagedType.LPWStr)] string deviceId,
+            IntPtr mode);
+        int SetShareMode([MarshalAs(UnmanagedType.LPWStr)] string deviceId,
+            IntPtr mode);
+        int GetPropertyValue([MarshalAs(UnmanagedType.LPWStr)] string deviceId,
+            [MarshalAs(UnmanagedType.Bool)] bool isFxStore, IntPtr key, IntPtr value);
+        int SetPropertyValue([MarshalAs(UnmanagedType.LPWStr)] string deviceId,
+            [MarshalAs(UnmanagedType.Bool)] bool isFxStore, IntPtr key, IntPtr value);
+        int SetDefaultEndpoint([MarshalAs(UnmanagedType.LPWStr)] string deviceId,
+            ERole role);
+        int SetEndpointVisibility([MarshalAs(UnmanagedType.LPWStr)] string deviceId,
+            [MarshalAs(UnmanagedType.Bool)] bool visible);
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    internal struct PROPERTYKEY
+    {
+        internal Guid fmtid;
+        internal uint pid;
+
+        internal PROPERTYKEY(string formatId, uint propertyId)
+        {
+            fmtid = Guid.Parse(formatId);
+            pid = propertyId;
+        }
+    }
+
+    [StructLayout(LayoutKind.Explicit, Pack = 1)]
+    internal struct PROPVARIANT
+    {
+        [FieldOffset(0)] internal ushort variantType;
+        [FieldOffset(2)] internal ushort reserved1;
+        [FieldOffset(4)] internal ushort reserved2;
+        [FieldOffset(6)] internal ushort reserved3;
+        [FieldOffset(8)] internal IntPtr pointerValue;
     }
 
     [ComImport]
@@ -55,6 +138,14 @@ namespace KodiAppliance
 
     internal static class SystemAudio
     {
+        private const uint DeviceStateActive = 0x1;
+        private const uint StgmRead = 0;
+        private static readonly PROPERTYKEY FriendlyNameKey = new PROPERTYKEY(
+            "A45C254E-DF1C-4EFD-8020-67D146A850E0", 14);
+
+        [DllImport("ole32.dll")]
+        private static extern int PropVariantClear(ref PROPVARIANT value);
+
         private static IAudioEndpointVolume Endpoint()
         {
             IMMDeviceEnumerator enumerator = (IMMDeviceEnumerator)new MMDeviceEnumeratorComObject();
@@ -119,6 +210,124 @@ namespace KodiAppliance
             {
                 if (endpoint != null) Marshal.ReleaseComObject(endpoint);
             }
+        }
+
+        internal static object GetOutputDeviceSnapshot()
+        {
+            List<object> devices = new List<object>();
+            string defaultId = null;
+            IMMDeviceEnumerator enumerator = null;
+            IMMDeviceCollection collection = null;
+            IMMDevice defaultDevice = null;
+            try
+            {
+                enumerator = (IMMDeviceEnumerator)new MMDeviceEnumeratorComObject();
+                try
+                {
+                    Marshal.ThrowExceptionForHR(enumerator.GetDefaultAudioEndpoint(
+                        EDataFlow.Render, ERole.Multimedia, out defaultDevice));
+                    defaultDevice.GetId(out defaultId);
+                }
+                catch { defaultId = null; }
+
+                Marshal.ThrowExceptionForHR(enumerator.EnumAudioEndpoints(
+                    EDataFlow.Render, DeviceStateActive, out collection));
+                uint count;
+                Marshal.ThrowExceptionForHR(collection.GetCount(out count));
+                for (uint index = 0; index < count; index++)
+                {
+                    IMMDevice device = null;
+                    try
+                    {
+                        Marshal.ThrowExceptionForHR(collection.Item(index, out device));
+                        string id;
+                        device.GetId(out id);
+                        if (String.IsNullOrWhiteSpace(id)) continue;
+                        string name = ReadFriendlyName(device);
+                        devices.Add(new Dictionary<string, object> {
+                            { "id", id },
+                            { "name", String.IsNullOrWhiteSpace(name) ? "Unnamed output" : name },
+                            { "isDefault", String.Equals(id, defaultId, StringComparison.OrdinalIgnoreCase) }
+                        });
+                    }
+                    catch { }
+                    finally { ReleaseComObject(device); }
+                }
+            }
+            catch { }
+            finally
+            {
+                ReleaseComObject(defaultDevice);
+                ReleaseComObject(collection);
+                ReleaseComObject(enumerator);
+            }
+
+            return new Dictionary<string, object> {
+                { "defaultId", defaultId ?? "" },
+                { "devices", devices }
+            };
+        }
+
+        internal static bool SetDefaultOutputDevice(string deviceId)
+        {
+            if (String.IsNullOrWhiteSpace(deviceId) || deviceId.Length > 1024)
+                return false;
+            foreach (char character in deviceId)
+            {
+                if (character < 0x20 || character == 0x7F ||
+                    character == '\r' || character == '\n') return false;
+            }
+
+            IPolicyConfig policy = null;
+            bool selected = false;
+            try
+            {
+                policy = (IPolicyConfig)new PolicyConfigClientComObject();
+                ERole[] roles = { ERole.Console, ERole.Multimedia, ERole.Communications };
+                foreach (ERole role in roles)
+                {
+                    if (policy.SetDefaultEndpoint(deviceId, role) >= 0)
+                        selected = true;
+                }
+            }
+            catch { return false; }
+            finally { ReleaseComObject(policy); }
+            return selected;
+        }
+
+        private static string ReadFriendlyName(IMMDevice device)
+        {
+            IPropertyStore properties = null;
+            PROPVARIANT value = new PROPVARIANT();
+            try
+            {
+                Marshal.ThrowExceptionForHR(device.OpenPropertyStore(StgmRead, out properties));
+                PROPERTYKEY key = FriendlyNameKey;
+                Marshal.ThrowExceptionForHR(properties.GetValue(ref key, out value));
+                if (value.variantType == 31 && value.pointerValue != IntPtr.Zero)
+                    return Marshal.PtrToStringUni(value.pointerValue);
+                if (value.variantType == 8 && value.pointerValue != IntPtr.Zero)
+                    return Marshal.PtrToStringBSTR(value.pointerValue);
+                if (value.variantType == 30 && value.pointerValue != IntPtr.Zero)
+                    return Marshal.PtrToStringAnsi(value.pointerValue);
+                return null;
+            }
+            catch { return null; }
+            finally
+            {
+                try { PropVariantClear(ref value); } catch { }
+                ReleaseComObject(properties);
+            }
+        }
+
+        private static void ReleaseComObject(object value)
+        {
+            try
+            {
+                if (value != null && Marshal.IsComObject(value))
+                    Marshal.ReleaseComObject(value);
+            }
+            catch { }
         }
     }
 
