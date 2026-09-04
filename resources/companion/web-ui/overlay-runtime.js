@@ -16,6 +16,12 @@
   const volumeFill = stage.querySelector(".volume-fill");
   const volumeValue = stage.querySelector(".volume-value");
   const switches = stage.querySelectorAll(".switch");
+  const connectivityPanel = stage.querySelector(".connectivity-panel");
+  const connectivityTitle = stage.querySelector(".connectivity-title");
+  const connectivitySubtitle = stage.querySelector(".connectivity-subtitle");
+  const connectivityContent = stage.querySelector(".connectivity-content");
+  const connectivityActions = stage.querySelector(".connectivity-actions");
+  const connectivityBack = stage.querySelector(".connectivity-back");
   const fallbackPoster = "assets/fallbacks/poster-fallback.svg";
   const fallbackFanart = "assets/fallbacks/fanart-fallback.svg";
 
@@ -23,7 +29,8 @@
     ["return", "exit"],
     ["volume"],
     ["mute"],
-    ["wifi", "bluetooth"],
+    ["wifi", "wifiDetails"],
+    ["bluetooth", "bluetoothDetails"],
     ["sleep", "restart", "shutdown"]
   ];
   const elements = Object.create(null);
@@ -44,6 +51,7 @@
     "return", "exit", "volume", "mute", "wifi", "bluetooth",
     "sleep", "restart", "shutdown"
   ];
+  const detailElements = stage.querySelectorAll("[data-connectivity-details]");
 
   orderedElements.forEach(function (element, index) {
     if (!element) return;
@@ -54,6 +62,26 @@
     element.addEventListener("click", function () {
       if (element.classList.contains("is-disabled")) return;
       sendAction(action);
+    });
+  });
+
+  detailElements.forEach(function (element) {
+    const kind = element.getAttribute("data-connectivity-details");
+    const action = kind + "Details";
+    element.dataset.overlayAction = action;
+    element.id = "overlay-action-" + action;
+    elements[action] = element;
+    element.addEventListener("click", function (event) {
+      event.preventDefault();
+      event.stopPropagation();
+      sendAction(action);
+    });
+    element.addEventListener("keydown", function (event) {
+      if (event.key === "Enter" || event.key === " ") {
+        event.preventDefault();
+        event.stopPropagation();
+        sendAction(action);
+      }
     });
   });
 
@@ -93,6 +121,130 @@
 
   function setSwitch(index, on) {
     if (switches[index]) switches[index].classList.toggle("is-on", !!on);
+  }
+
+  let connectivityKind = "wifi";
+  let connectivityFocusIndex = 0;
+  let connectivityFocusButtons = [];
+
+  function displayValue(value, fallback) {
+    if (value == null || String(value).trim() === "") return fallback;
+    return String(value);
+  }
+
+  function appendFact(parent, label, value) {
+    const fact = document.createElement("div");
+    fact.className = "connectivity-fact";
+    const factLabel = document.createElement("span");
+    factLabel.className = "connectivity-fact-label";
+    safeText(factLabel, label);
+    const factValue = document.createElement("strong");
+    factValue.className = "connectivity-fact-value";
+    safeText(factValue, value);
+    fact.appendChild(factLabel);
+    fact.appendChild(factValue);
+    parent.appendChild(fact);
+  }
+
+  function appendConnectivityAction(label, action) {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "connectivity-action";
+    button.dataset.connectivityAction = action;
+    safeText(button, label);
+    button.addEventListener("click", function () { sendAction(action); });
+    connectivityActions.appendChild(button);
+    connectivityFocusButtons.push(button);
+  }
+
+  function renderConnectivity(kind, snapshot) {
+    if (!connectivityContent || !connectivityActions) return;
+    connectivityKind = kind === "bluetooth" ? "bluetooth" : "wifi";
+    while (connectivityContent.firstChild) connectivityContent.removeChild(connectivityContent.firstChild);
+    while (connectivityActions.firstChild) connectivityActions.removeChild(connectivityActions.firstChild);
+
+    const source = snapshot || {};
+    const data = source[connectivityKind] || {};
+    const facts = document.createElement("div");
+    facts.className = "connectivity-facts";
+    if (connectivityKind === "wifi") {
+      appendFact(facts, "Connection", displayValue(data.state, "Unknown"));
+      appendFact(facts, "Network", displayValue(data.ssid, "Not connected"));
+      appendFact(facts, "Signal", Number.isFinite(Number(data.signal)) ? Number(data.signal) + "%" : "—");
+      appendFact(facts, "Link speed", displayValue(data.linkSpeed, "—"));
+      appendFact(facts, "Adapter", displayValue(data.adapter, "—"));
+    } else {
+      const devices = Array.isArray(data.devices) ? data.devices : [];
+      appendFact(facts, "Bluetooth", displayValue(data.state, "Unknown"));
+      appendFact(facts, "Devices", String(devices.length));
+      connectivityContent.appendChild(facts);
+
+      const deviceList = document.createElement("div");
+      deviceList.className = "connectivity-device-list";
+      if (devices.length === 0) {
+        const empty = document.createElement("p");
+        empty.className = "connectivity-empty";
+        safeText(empty, "No paired devices found");
+        deviceList.appendChild(empty);
+      } else {
+        devices.forEach(function (device) {
+          const row = document.createElement("div");
+          row.className = "connectivity-device-row";
+          const text = document.createElement("div");
+          text.className = "connectivity-device-text";
+          const name = document.createElement("strong");
+          safeText(name, displayValue(device && device.name, "Unnamed device"));
+          const status = document.createElement("span");
+          safeText(status, displayValue(device && device.status, "Unknown"));
+          text.appendChild(name);
+          text.appendChild(status);
+          const battery = document.createElement("span");
+          battery.className = "connectivity-device-battery";
+          const level = Number(device && device.battery);
+          safeText(battery, Number.isFinite(level) && level >= 0 && level <= 100
+            ? "Battery " + Math.round(level) + "%" : "Battery —");
+          row.appendChild(text);
+          row.appendChild(battery);
+          deviceList.appendChild(row);
+        });
+      }
+      connectivityContent.appendChild(deviceList);
+    }
+    if (connectivityKind === "wifi") connectivityContent.appendChild(facts);
+
+    connectivityFocusButtons = [];
+    if (connectivityBack) connectivityFocusButtons.push(connectivityBack);
+    appendConnectivityAction("Refresh", connectivityKind + "Refresh");
+    appendConnectivityAction(
+      connectivityKind === "wifi" ? "Open Network Settings" : "Open Bluetooth Settings",
+      connectivityKind + "Settings");
+    connectivityFocusIndex = connectivityFocusButtons.length > 1 ? 1 : 0;
+    setConnectivityFocus();
+  }
+
+  function setConnectivityFocus() {
+    connectivityFocusButtons.forEach(function (button, index) {
+      button.classList.toggle("is-focused", index === connectivityFocusIndex);
+    });
+  }
+
+  function moveConnectivityFocus(direction) {
+    if (!connectivityPanel || connectivityPanel.hidden || connectivityFocusButtons.length === 0) return;
+    const backwards = direction === "up" || direction === "left";
+    const delta = backwards ? -1 : 1;
+    connectivityFocusIndex = (connectivityFocusIndex + delta + connectivityFocusButtons.length) % connectivityFocusButtons.length;
+    setConnectivityFocus();
+  }
+
+  function activateConnectivityFocus() {
+    const button = connectivityFocusButtons[connectivityFocusIndex];
+    if (button && typeof button.click === "function") button.click();
+  }
+
+  if (connectivityBack) {
+    connectivityBack.addEventListener("click", function () {
+      sendAction("connectivityClose");
+    });
   }
 
   function setFocus(payload) {
@@ -190,6 +342,26 @@
       setSwitch(1, !!payload.wifiEnabled);
       setSwitch(2, !!payload.bluetoothEnabled);
     },
+    showConnectivity: function (payload) {
+      payload = payload || {};
+      if (!connectivityPanel) return;
+      connectivityPanel.hidden = false;
+      safeText(connectivityTitle, payload.kind === "bluetooth" ? "Bluetooth" : "Wi-Fi");
+      safeText(connectivitySubtitle, payload.kind === "bluetooth"
+        ? "Paired and connected devices" : "Current network");
+      renderConnectivity(payload.kind, payload.snapshot);
+    },
+    setConnectivityDetails: function (payload) {
+      payload = payload || {};
+      if (!connectivityPanel || connectivityPanel.hidden) return;
+      renderConnectivity(connectivityKind, payload.snapshot);
+    },
+    hideConnectivity: function () {
+      if (connectivityPanel) connectivityPanel.hidden = true;
+      connectivityFocusButtons = [];
+    },
+    moveConnectivityFocus: moveConnectivityFocus,
+    activateConnectivityFocus: activateConnectivityFocus,
     setFocus: setFocus,
     setDisabled: function (payload) {
       const element = payload && elements[payload.action];

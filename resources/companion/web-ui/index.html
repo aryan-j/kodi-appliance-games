@@ -68,11 +68,13 @@
                 <span class="control-row-icon"><svg viewBox="0 0 24 24" fill="none"><path d="M2 8.5a15 15 0 0 1 20 0" stroke="currentColor" stroke-width="2" stroke-linecap="round"/><path d="M5.5 12.5a10 10 0 0 1 13 0" stroke="currentColor" stroke-width="2" stroke-linecap="round"/><path d="M9 16.3a5 5 0 0 1 6 0" stroke="currentColor" stroke-width="2" stroke-linecap="round"/><circle cx="12" cy="19.3" r="1.4" fill="currentColor"/></svg></span>
                 <span class="control-row-label">Wi-Fi</span>
                 <span class="switch is-on"><span class="switch-knob"></span></span>
+                <span class="connectivity-details" role="button" tabindex="0" data-connectivity-details="wifi" aria-label="Open Wi-Fi details"><svg class="chevron" viewBox="0 0 24 24" fill="none"><path d="M9 5l7 7-7 7" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg></span>
               </button>
               <button type="button" class="control-row">
                 <span class="control-row-icon"><svg viewBox="0 0 24 24" fill="none"><path d="M8 7.5 16 15l-4.5 3.8V4.7L16 8.5 8 16" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg></span>
                 <span class="control-row-label">Bluetooth</span>
                 <span class="switch is-on"><span class="switch-knob"></span></span>
+                <span class="connectivity-details" role="button" tabindex="0" data-connectivity-details="bluetooth" aria-label="Open Bluetooth details"><svg class="chevron" viewBox="0 0 24 24" fill="none"><path d="M9 5l7 7-7 7" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg></span>
               </button>
             </div>
 
@@ -94,6 +96,23 @@
                 <svg class="chevron" viewBox="0 0 24 24" fill="none"><path d="M9 5l7 7-7 7" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg>
               </button>
             </div>
+
+            <!-- The expanded connectivity surface stays inside this existing
+                 control panel; it is not a second dialog or OS window. -->
+            <section class="connectivity-panel" hidden aria-label="Connectivity details">
+              <div class="connectivity-header">
+                <button type="button" class="connectivity-back" data-connectivity-action="connectivityClose" aria-label="Back to pause menu">
+                  <svg class="connectivity-back-icon" viewBox="0 0 24 24" fill="none"><path d="M15 5 8 12l7 7" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+                  <span>Back</span>
+                </button>
+                <div class="connectivity-heading">
+                  <h2 class="connectivity-title">Wi-Fi</h2>
+                  <p class="connectivity-subtitle">Connection details</p>
+                </div>
+              </div>
+              <div class="connectivity-content" aria-live="polite"></div>
+              <div class="connectivity-actions"></div>
+            </section>
           </section>
 
           <aside class="art-column" aria-label="Game art and session stats">

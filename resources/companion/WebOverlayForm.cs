@@ -5,8 +5,10 @@ using System.Drawing;
 using System.IO;
 using System.Runtime.InteropServices;
 using System.Text.RegularExpressions;
+using System.Threading;
 using System.Web.Script.Serialization;
 using System.Windows.Forms;
+using FormsTimer = System.Windows.Forms.Timer;
 using Microsoft.Web.WebView2.Core;
 using Microsoft.Web.WebView2.WinForms;
 
@@ -26,17 +28,17 @@ namespace KodiAppliance
         private readonly bool previewMode;
         private readonly Native.XInputGetStateEx getState;
         private readonly WebView2 webView;
-        private readonly Timer inputTimer;
-        private readonly Timer processTimer;
-        private readonly Timer metadataTimer;
+        private readonly FormsTimer inputTimer;
+        private readonly FormsTimer processTimer;
+        private readonly FormsTimer metadataTimer;
         private readonly JavaScriptSerializer serializer = new JavaScriptSerializer();
         private readonly string[][] navigationRows = {
             new[] { "return" },
             new[] { "exit" },
             new[] { "volume" },
             new[] { "mute" },
-            new[] { "wifi" },
-            new[] { "bluetooth" },
+            new[] { "wifi", "wifiDetails" },
+            new[] { "bluetooth", "bluetoothDetails" },
             new[] { "sleep" },
             new[] { "restart" },
             new[] { "shutdown" }
@@ -53,6 +55,8 @@ namespace KodiAppliance
         private bool muted;
         private bool wifiEnabled;
         private bool bluetoothEnabled;
+        private bool connectivityPanelVisible;
+        private bool connectivitySnapshotInFlight;
         private const int OverlayHotKey = 0x4B42;
         private const int HotKeyMessage = 0x0312;
 
@@ -98,11 +102,11 @@ namespace KodiAppliance
             };
             Controls.Add(webView);
 
-            inputTimer = new Timer { Interval = 60 };
+            inputTimer = new FormsTimer { Interval = 60 };
             inputTimer.Tick += PollController;
-            processTimer = new Timer { Interval = 1000 };
+            processTimer = new FormsTimer { Interval = 1000 };
             processTimer.Tick += CheckGame;
-            metadataTimer = new Timer { Interval = 1000 };
+            metadataTimer = new FormsTimer { Interval = 1000 };
             metadataTimer.Tick += UpdateDynamicState;
 
             Shown += delegate {
@@ -298,6 +302,15 @@ namespace KodiAppliance
 
         private void HandleAction(string action)
         {
+            if (connectivityPanelVisible)
+            {
+                if (action == "connectivityClose") HideConnectivityPanel();
+                else if (action == "wifiRefresh" || action == "bluetoothRefresh")
+                    RequestConnectivitySnapshot(true);
+                else if (action == "wifiSettings") OpenConnectivitySettings(RadioKind.WiFi);
+                else if (action == "bluetoothSettings") OpenConnectivitySettings(RadioKind.Bluetooth);
+                return;
+            }
             if (confirmationVisible)
             {
                 if (action == "confirmYes") ConfirmPendingAction();
@@ -311,6 +324,8 @@ namespace KodiAppliance
             else if (action == "mute") ToggleMute();
             else if (action == "wifi") ToggleRadio(RadioKind.WiFi);
             else if (action == "bluetooth") ToggleRadio(RadioKind.Bluetooth);
+            else if (action == "wifiDetails") ShowConnectivityPanel(RadioKind.WiFi);
+            else if (action == "bluetoothDetails") ShowConnectivityPanel(RadioKind.Bluetooth);
             else if (action == "sleep") ShowConfirmation("Put this PC to sleep?", "sleep");
             else if (action == "restart") ShowConfirmation("Restart this PC?", "restart");
             else if (action == "shutdown") ShowConfirmation("Shut down this PC?", "shutdown");
@@ -353,6 +368,71 @@ namespace KodiAppliance
             };
             Execute("window.overlayUI.setConnectivity(" +
                 serializer.Serialize(payload) + ");");
+        }
+
+        private void ShowConnectivityPanel(RadioKind kind)
+        {
+            connectivityPanelVisible = true;
+            Dictionary<string, object> payload = new Dictionary<string, object> {
+                { "kind", kind == RadioKind.WiFi ? "wifi" : "bluetooth" },
+                { "wifiEnabled", wifiEnabled },
+                { "bluetoothEnabled", bluetoothEnabled },
+                { "snapshot", SystemConnectivity.GetCachedSnapshot() }
+            };
+            Execute("window.overlayUI.showConnectivity(" +
+                serializer.Serialize(payload) + ");");
+            RequestConnectivitySnapshot(false);
+        }
+
+        private void RequestConnectivitySnapshot(bool forceRefresh)
+        {
+            if (!connectivityPanelVisible) return;
+            if (connectivitySnapshotInFlight) return;
+            connectivitySnapshotInFlight = true;
+            ThreadPool.QueueUserWorkItem(delegate {
+                object snapshot = SystemConnectivity.GetSnapshot(forceRefresh);
+                try
+                {
+                    if (!IsDisposed && IsHandleCreated)
+                    {
+                        BeginInvoke((MethodInvoker)delegate {
+                            connectivitySnapshotInFlight = false;
+                            if (!connectivityPanelVisible) return;
+                            Dictionary<string, object> payload = new Dictionary<string, object> {
+                                { "snapshot", snapshot },
+                                { "wifiEnabled", wifiEnabled },
+                                { "bluetoothEnabled", bluetoothEnabled }
+                            };
+                            Execute("window.overlayUI.setConnectivityDetails(" +
+                                serializer.Serialize(payload) + ");");
+                        });
+                    }
+                    else connectivitySnapshotInFlight = false;
+                }
+                catch { connectivitySnapshotInFlight = false; }
+            });
+        }
+
+        private void HideConnectivityPanel()
+        {
+            if (!connectivityPanelVisible) return;
+            connectivityPanelVisible = false;
+            Execute("window.overlayUI.hideConnectivity();");
+            SetFocus(focusRow, focusColumn);
+        }
+
+        private void OpenConnectivitySettings(RadioKind kind)
+        {
+            string uri = kind == RadioKind.WiFi
+                ? "ms-settings:network-wifi"
+                : "ms-settings:bluetooth";
+            try
+            {
+                Process.Start(new ProcessStartInfo(uri) { UseShellExecute = true });
+            }
+            catch { }
+            HideConnectivityPanel();
+            HideOverlay();
         }
 
         private void ShowConfirmation(string title, string action)
@@ -437,6 +517,20 @@ namespace KodiAppliance
                 return;
             }
             if (!overlayVisible) return;
+            if (connectivityPanelVisible)
+            {
+                if ((pressed & Native.B) != 0)
+                {
+                    HideConnectivityPanel();
+                    return;
+                }
+                if ((pressed & Native.DPadUp) != 0) MoveConnectivityFocus("up");
+                if ((pressed & Native.DPadDown) != 0) MoveConnectivityFocus("down");
+                if ((pressed & Native.DPadLeft) != 0) MoveConnectivityFocus("left");
+                if ((pressed & Native.DPadRight) != 0) MoveConnectivityFocus("right");
+                if ((pressed & Native.A) != 0) ActivateConnectivityFocus();
+                return;
+            }
             if ((pressed & Native.B) != 0)
             {
                 if (confirmationVisible) HideConfirmation(); else HideOverlay();
@@ -508,6 +602,7 @@ namespace KodiAppliance
 
         private void HideOverlay()
         {
+            if (connectivityPanelVisible) HideConnectivityPanel();
             overlayVisible = false;
             Opacity = 0;
             TopMost = false;
@@ -563,6 +658,20 @@ namespace KodiAppliance
         {
             if (!overlayVisible) return base.ProcessCmdKey(ref message, keyData);
             Keys key = keyData & Keys.KeyCode;
+            if (connectivityPanelVisible)
+            {
+                if (key == Keys.Escape || key == Keys.Back)
+                {
+                    HideConnectivityPanel();
+                    return true;
+                }
+                if (key == Keys.Up || key == Keys.W) { MoveConnectivityFocus("up"); return true; }
+                if (key == Keys.Down || key == Keys.S) { MoveConnectivityFocus("down"); return true; }
+                if (key == Keys.Left) { MoveConnectivityFocus("left"); return true; }
+                if (key == Keys.Right) { MoveConnectivityFocus("right"); return true; }
+                if (key == Keys.Enter || key == Keys.Space) { ActivateConnectivityFocus(); return true; }
+                return base.ProcessCmdKey(ref message, keyData);
+            }
             if (key == Keys.Up || key == Keys.W) { MoveFocus(0, -1); return true; }
             if (key == Keys.Down || key == Keys.S) { MoveFocus(0, 1); return true; }
             if (key == Keys.Left) { MoveFocus(-1, 0); return true; }
@@ -574,6 +683,17 @@ namespace KodiAppliance
                 return true;
             }
             return base.ProcessCmdKey(ref message, keyData);
+        }
+
+        private void MoveConnectivityFocus(string direction)
+        {
+            Execute("window.overlayUI.moveConnectivityFocus(" +
+                serializer.Serialize(direction) + ");");
+        }
+
+        private void ActivateConnectivityFocus()
+        {
+            Execute("window.overlayUI.activateConnectivityFocus();");
         }
 
         private static void LogFailure(Exception exception)

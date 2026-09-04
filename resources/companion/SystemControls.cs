@@ -1,7 +1,9 @@
 using System;
+using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
 using System.Runtime.InteropServices;
+using System.Web.Script.Serialization;
 
 namespace KodiAppliance
 {
@@ -163,6 +165,90 @@ namespace KodiAppliance
         {
             return Run(kind, "Toggle").EndsWith("On",
                 StringComparison.OrdinalIgnoreCase);
+        }
+    }
+
+    // Connectivity details are intentionally read-only and separate from the
+    // existing radio toggle path.  A short process-local cache keeps opening
+    // the panel from repeatedly starting PowerShell while still allowing an
+    // explicit Refresh action to request fresh data.
+    internal static class SystemConnectivity
+    {
+        private static readonly object CacheLock = new object();
+        private static readonly TimeSpan CacheLifetime = TimeSpan.FromSeconds(3);
+        private static string cachedJson;
+        private static DateTime cachedAtUtc;
+
+        // Returns immediately and never starts a process.  The overlay uses
+        // this for the first paint, then refreshes on a worker thread.
+        internal static object GetCachedSnapshot()
+        {
+            lock (CacheLock)
+            {
+                return Deserialize(String.IsNullOrWhiteSpace(cachedJson)
+                    ? "{}" : cachedJson);
+            }
+        }
+
+        internal static object GetSnapshot(bool forceRefresh)
+        {
+            lock (CacheLock)
+            {
+                if (!forceRefresh && !String.IsNullOrWhiteSpace(cachedJson) &&
+                    DateTime.UtcNow - cachedAtUtc < CacheLifetime)
+                    return Deserialize(cachedJson);
+
+                string json = RunSnapshot();
+                cachedJson = String.IsNullOrWhiteSpace(json) ? "{}" : json;
+                cachedAtUtc = DateTime.UtcNow;
+                return Deserialize(cachedJson);
+            }
+        }
+
+        private static object Deserialize(string json)
+        {
+            try
+            {
+                return new JavaScriptSerializer().DeserializeObject(json);
+            }
+            catch
+            {
+                return new Dictionary<string, object>();
+            }
+        }
+
+        private static string RunSnapshot()
+        {
+            try
+            {
+                string script = Path.Combine(
+                    AppDomain.CurrentDomain.BaseDirectory, "connectivity.ps1");
+                if (!File.Exists(script)) return "{}";
+                ProcessStartInfo info = new ProcessStartInfo(
+                    "powershell.exe",
+                    "-NoProfile -NonInteractive -ExecutionPolicy Bypass -File \"" +
+                    script + "\" -Action Snapshot") {
+                    UseShellExecute = false,
+                    CreateNoWindow = true,
+                    RedirectStandardOutput = true,
+                    RedirectStandardError = true
+                };
+                using (Process process = Process.Start(info))
+                {
+                    if (process == null) return "{}";
+                    // This work runs off the UI thread.  Keep a hard bound for
+                    // a slow Windows PnP provider while allowing normal helper
+                    // startup/queries to finish without returning false data.
+                    if (!process.WaitForExit(6000))
+                    {
+                        try { process.Kill(); } catch { }
+                        return "{}";
+                    }
+                    string output = process.StandardOutput.ReadToEnd().Trim();
+                    return String.IsNullOrWhiteSpace(output) ? "{}" : output;
+                }
+            }
+            catch { return "{}"; }
         }
     }
 }
