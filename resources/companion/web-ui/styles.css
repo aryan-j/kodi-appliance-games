@@ -1771,6 +1771,373 @@ button { font: inherit; }
   background: var(--color-accent);
 }
 
+/* ---------- 2.0.4 annotation refinement ---------- */
+
+.control-panel-hint,
+.control-group-caption {
+  font-size: 0.75rem;
+}
+
+.control-group-label {
+  font-size: 0.75rem;
+}
+
+.control-row-label {
+  font-size: 1.05rem;
+}
+
+.control-row-hint {
+  font-size: 0.875rem;
+  line-height: 1.2;
+}
+
+.game-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.5rem;
+}
+
+.game-tile {
+  min-height: 5rem;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.35rem;
+  padding: 0.625rem;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: rgba(255, 255, 255, 0.04);
+  color: var(--color-fg);
+  transition: background var(--transition-fast), color var(--transition-fast), border-color var(--transition-fast), transform var(--transition-fast), box-shadow var(--transition-fast);
+}
+
+.game-tile--return {
+  background: rgba(129, 226, 174, 0.08);
+  border-color: rgba(129, 226, 174, 0.2);
+}
+
+.game-tile--exit {
+  background: rgba(255, 157, 157, 0.07);
+  border-color: rgba(255, 157, 157, 0.18);
+}
+
+.game-tile .control-row-icon {
+  width: 1.625rem;
+  height: 1.625rem;
+}
+
+.game-tile .control-row-icon img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+
+.game-tile .control-row-copy {
+  flex: none;
+  align-items: center;
+  gap: 0.1875rem;
+  text-align: center;
+}
+
+.game-tile .control-row-label {
+  font-size: 0.9375rem;
+}
+
+.game-tile .control-row-hint {
+  font-size: 0.6875rem;
+}
+
+.game-tile .chevron {
+  display: none;
+}
+
+.game-tile:hover,
+.game-tile:focus-visible,
+.game-tile.is-focused {
+  border-color: transparent;
+  background: var(--color-focus-bg);
+  color: var(--color-focus-text);
+  outline: none;
+  transform: translateY(-0.125rem);
+  box-shadow: 0 0.75rem 1.5rem rgba(0, 0, 0, 0.18);
+}
+
+.game-tile--exit:hover,
+.game-tile--exit:focus-visible,
+.game-tile--exit.is-focused {
+  background: #ffe7e7;
+  color: #4a171b;
+}
+
+.game-tile:hover .game-tile-icon img,
+.game-tile:focus-visible .game-tile-icon img,
+.game-tile.is-focused .game-tile-icon img {
+  filter: brightness(0);
+}
+
+.control-row:hover .chevron,
+.control-row:focus-visible .chevron,
+.control-row.is-focused .chevron {
+  color: var(--color-focus-text);
+  opacity: 1;
+}
+
+.control-row:hover .volume-value,
+.control-row:focus-visible .volume-value,
+.control-row.is-focused .volume-value,
+.control-row:hover .output-device-name,
+.control-row:focus-visible .output-device-name,
+.control-row.is-focused .output-device-name,
+.control-row:hover .output-device-count,
+.control-row:focus-visible .output-device-count,
+.control-row.is-focused .output-device-count {
+  color: var(--color-focus-text);
+  opacity: 0.9;
+}
+
+.volume-row {
+  min-height: 5.25rem;
+}
+
+.volume-control {
+  gap: 1.125rem;
+}
+
+.volume-meter {
+  width: 13rem;
+  height: 0.75rem;
+  border-radius: var(--radius-pill);
+}
+
+.volume-fill {
+  border-radius: inherit;
+}
+
+.volume-thumb {
+  width: 1.25rem;
+  height: 1.25rem;
+}
+
+.volume-state-badge {
+  min-height: 1.375rem;
+  margin-top: 0.25rem;
+  padding: 0.2rem 0.625rem;
+  border: 1px solid rgba(129, 226, 174, 0.24);
+  color: #071b12;
+  background: var(--color-accent);
+  font-size: 0.75rem;
+  letter-spacing: 0.06rem;
+}
+
+.volume-row.is-muted .volume-state-badge {
+  border-color: rgba(255, 157, 157, 0.35);
+  color: #3a1518;
+  background: #ffb3b3;
+}
+
+.volume-row:hover .volume-state-badge,
+.volume-row:focus-visible .volume-state-badge,
+.volume-row.is-focused .volume-state-badge {
+  border-color: transparent;
+  color: var(--color-focus-text);
+  background: rgba(21, 22, 26, 0.14);
+}
+
+.volume-row.is-muted:hover .volume-state-badge,
+.volume-row.is-muted:focus-visible .volume-state-badge,
+.volume-row.is-muted.is-focused .volume-state-badge {
+  color: #4a171b;
+  background: rgba(255, 157, 157, 0.5);
+}
+
+.volume-value {
+  min-width: 4rem;
+  font-size: 1.05rem;
+}
+
+.output-device-icon {
+  width: 2rem;
+  height: 2rem;
+}
+
+.output-device-name,
+.output-device-count {
+  font-size: 0.875rem;
+}
+
+.output-device-row {
+  min-height: 4.5rem;
+}
+
+.connection-grid {
+  gap: 0.625rem;
+}
+
+.connection-card {
+  min-height: 6.75rem;
+  padding: 0.875rem;
+}
+
+.connection-card.is-connected {
+  border-color: rgba(129, 226, 174, 0.22);
+  background: rgba(129, 226, 174, 0.065);
+}
+
+.connection-card .control-row-label {
+  font-size: 0.975rem;
+}
+
+.connection-card-action {
+  font-size: 0.75rem;
+  opacity: 0.9;
+}
+
+.connection-status {
+  min-height: 1.5rem;
+  padding: 0.3rem 0.65rem;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  font-size: 0.6875rem;
+  letter-spacing: 0.08rem;
+}
+
+.connection-status.is-on {
+  border-color: rgba(129, 226, 174, 0.36);
+  color: #061b11;
+  background: var(--color-accent);
+  box-shadow: 0 0 0 0.125rem rgba(129, 226, 174, 0.09);
+}
+
+.connection-status:not(.is-on) {
+  border-color: rgba(255, 157, 157, 0.24);
+  color: #ffd0d0;
+  background: rgba(255, 157, 157, 0.16);
+}
+
+.connection-card:hover,
+.connection-card:focus-visible,
+.connection-card.is-focused {
+  border-color: transparent;
+  background: var(--color-focus-bg);
+  color: var(--color-focus-text);
+}
+
+.connection-card:hover .connection-status,
+.connection-card:focus-visible .connection-status,
+.connection-card.is-focused .connection-status {
+  border-color: transparent;
+  color: var(--color-focus-text);
+  background: rgba(21, 22, 26, 0.14);
+  box-shadow: none;
+}
+
+.connection-card:hover .connection-card-action,
+.connection-card:focus-visible .connection-card-action,
+.connection-card.is-focused .connection-card-action {
+  opacity: 0.9;
+}
+
+.power-grid {
+  gap: 0.625rem;
+}
+
+.power-tile {
+  min-height: 5.75rem;
+  padding: 0.75rem;
+  color: var(--color-fg);
+}
+
+.power-tile[data-power-action="sleep"] {
+  --power-tone: #a9c6ff;
+  --power-surface: rgba(113, 157, 255, 0.11);
+  --power-border: rgba(169, 198, 255, 0.24);
+}
+
+.power-tile[data-power-action="restart"] {
+  --power-tone: #d7b8ff;
+  --power-surface: rgba(184, 137, 255, 0.11);
+  --power-border: rgba(215, 184, 255, 0.24);
+}
+
+.power-tile[data-power-action="shutdown"] {
+  --power-tone: #ff9d9d;
+  --power-surface: rgba(255, 157, 157, 0.09);
+  --power-border: rgba(255, 157, 157, 0.24);
+}
+
+.power-tile:not(:hover):not(:focus-visible):not(.is-focused) {
+  border-color: var(--power-border);
+  background: var(--power-surface);
+}
+
+.power-tile .power-icon {
+  color: var(--power-tone, var(--color-accent));
+}
+
+.power-tile:hover .power-icon,
+.power-tile:focus-visible .power-icon,
+.power-tile.is-focused .power-icon {
+  color: var(--color-focus-text);
+}
+
+.power-tile-label {
+  font-size: 0.9rem;
+}
+
+.power-tile-hint {
+  font-size: 0.75rem;
+  opacity: 0.85;
+}
+
+.power-prompt {
+  --prompt-accent: var(--color-accent);
+  --prompt-surface: #1a1c22;
+  --prompt-border: rgba(129, 226, 174, 0.28);
+  background: var(--prompt-surface);
+}
+
+.power-prompt.is-visible {
+  border-color: var(--prompt-border);
+}
+
+.power-prompt-eyebrow {
+  color: var(--prompt-accent);
+}
+
+.power-prompt-button--confirm {
+  border-color: var(--prompt-border);
+  color: var(--prompt-accent);
+}
+
+.power-prompt-button--confirm:hover,
+.power-prompt-button--confirm:focus-visible,
+.power-prompt-button--confirm.is-focused {
+  background: var(--prompt-accent);
+  color: #101318;
+}
+
+.power-prompt.is-action-exit {
+  --prompt-accent: #81e2ae;
+  --prompt-surface: #1a1c22;
+  --prompt-border: rgba(129, 226, 174, 0.28);
+}
+
+.power-prompt.is-action-sleep {
+  --prompt-accent: #a9c6ff;
+  --prompt-surface: #1c2533;
+  --prompt-border: rgba(169, 198, 255, 0.34);
+}
+
+.power-prompt.is-action-restart {
+  --prompt-accent: #d7b8ff;
+  --prompt-surface: #252034;
+  --prompt-border: rgba(215, 184, 255, 0.34);
+}
+
+.power-prompt.is-action-shutdown {
+  --prompt-accent: #ff9d9d;
+  --prompt-surface: #2b1b21;
+  --prompt-border: rgba(255, 157, 157, 0.42);
+}
+
 @keyframes mute-pulse {
   0%, 100% { box-shadow: 0 0 0 0 rgba(255, 157, 157, 0.05); }
   50% { box-shadow: 0 0 0 0.25rem rgba(255, 157, 157, 0.08); }

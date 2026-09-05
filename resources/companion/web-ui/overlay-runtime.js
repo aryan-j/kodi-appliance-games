@@ -20,7 +20,6 @@
   const volumeIcon = stage.querySelector(".volume-icon-image");
   const volumeBadge = stage.querySelector("[data-volume-badge]");
   const connectionStates = stage.querySelectorAll("[data-connection-status]");
-  const volumeState = stage.querySelector(".volume-state");
   const outputDeviceName = stage.querySelector(".output-device-name");
   const outputDeviceCount = stage.querySelector(".output-device-count");
   const outputDevicePanel = stage.querySelector(".output-device-panel");
@@ -31,8 +30,8 @@
   const powerGroup = stage.querySelector(".control-group--power");
   const powerGrid = stage.querySelector(".power-grid");
   const powerPrompt = stage.querySelector(".control-group--power .power-prompt");
-  const powerPromptTitle = stage.querySelector(".power-prompt-title");
-  const powerPromptSubtitle = stage.querySelector(".power-prompt-subtitle");
+  const powerPromptTitle = powerPrompt ? powerPrompt.querySelector(".power-prompt-title") : null;
+  const powerPromptSubtitle = powerPrompt ? powerPrompt.querySelector(".power-prompt-subtitle") : null;
   const powerPromptButtons = stage.querySelectorAll("[data-power-prompt-action]");
   const exitPrompt = stage.querySelector(".exit-prompt");
   const exitPromptTitle = exitPrompt ? exitPrompt.querySelector(".power-prompt-title") : null;
@@ -257,7 +256,9 @@
   function setConnectionState(index, on) {
     if (!connectionStates[index]) return;
     connectionStates[index].classList.toggle("is-on", !!on);
-    safeText(connectionStates[index], on ? "On" : "Off");
+    safeText(connectionStates[index], on ? "ON" : "OFF");
+    const action = index === 0 ? elements.wifi : elements.bluetooth;
+    if (action) action.classList.toggle("is-connected", !!on);
   }
 
   let connectivityKind = "wifi";
@@ -609,17 +610,24 @@
     if (powerGrid) powerGrid.classList.remove("is-prompt-open");
     if (powerGroup) powerGroup.classList.remove("is-prompt-open");
     if (gameGroup) gameGroup.classList.remove("is-prompt-open");
+    [powerGroup, powerPrompt, gameGroup, exitPrompt].forEach(function (surface) {
+      if (!surface) return;
+      surface.classList.remove("is-action-exit", "is-action-sleep", "is-action-restart", "is-action-shutdown");
+    });
     Object.keys(elements).forEach(function (name) {
       if (elements[name]) elements[name].classList.remove("is-expanded");
     });
 
     const focusedAction = payload.focusedAction === "confirmYes" ? "confirmYes" : "confirmNo";
+    const actionClass = "is-action-" + (isExitPrompt ? "exit" : action);
     if (isExitPrompt) {
       if (gameGroup) gameGroup.classList.add("is-prompt-open");
+      if (gameGroup) gameGroup.classList.add(actionClass);
       if (elements.exit) elements.exit.classList.add("is-expanded");
       safeText(exitPromptTitle, payload.title || "Exit this session?");
       safeText(exitPromptSubtitle, "Your current session will close.");
       setPowerPromptFocus(exitPromptButtons, focusedAction, "data-exit-prompt-action");
+      exitPrompt.classList.add(actionClass);
     } else {
       Object.keys(elements).forEach(function (name) {
         if (elements[name] && elements[name].classList.contains("power-tile"))
@@ -627,9 +635,11 @@
       });
       powerGrid.classList.add("is-prompt-open");
       if (powerGroup) powerGroup.classList.add("is-prompt-open");
+      if (powerGroup) powerGroup.classList.add(actionClass);
       safeText(powerPromptTitle, payload.title || "Are you sure?");
       safeText(powerPromptSubtitle, "Choose Cancel or Continue to confirm.");
       setPowerPromptFocus(powerPromptButtons, focusedAction, "data-power-prompt-action");
+      powerPrompt.classList.add(actionClass);
     }
 
     prompt.hidden = false;
@@ -649,6 +659,10 @@
     if (powerGrid) powerGrid.classList.remove("is-prompt-open");
     if (powerGroup) powerGroup.classList.remove("is-prompt-open");
     if (gameGroup) gameGroup.classList.remove("is-prompt-open");
+    [powerGroup, powerPrompt, gameGroup, exitPrompt].forEach(function (surface) {
+      if (!surface) return;
+      surface.classList.remove("is-action-exit", "is-action-sleep", "is-action-restart", "is-action-shutdown");
+    });
     Object.keys(elements).forEach(function (name) {
       if (elements[name]) elements[name].classList.remove("is-expanded");
     });
@@ -764,7 +778,7 @@
       if (volumeThumb) volumeThumb.style.left = value + "%";
       safeText(volumeValue, value + "%");
       if (volumeIcon) volumeIcon.src = muted ? "assets/icons/mute.svg" : "assets/icons/volume.svg";
-      safeText(volumeBadge, muted ? "Muted" : "Sound on");
+      safeText(volumeBadge, muted ? "UNMUTE" : "MUTE");
       if (elements.volume) {
         elements.volume.classList.toggle("is-muted", muted);
         elements.volume.setAttribute(
@@ -772,7 +786,6 @@
           "Volume " + value + " percent. " + (muted ? "Click to unmute." : "Click to mute.")
         );
       }
-      safeText(volumeState, muted ? "Muted · click to restore" : "Click to mute / unmute");
     },
     setOutputDevices: function (payload) {
       payload = payload || {};
@@ -882,7 +895,13 @@
 
   document.documentElement.classList.add("overlay-runtime");
   window.overlayUI.setFocus({ action: "return" });
-  if (window.chrome && window.chrome.webview && window.location.hostname === "overlay.local") {
+  const hostBridgeAvailable = window.chrome && window.chrome.webview && window.location.hostname === "overlay.local";
+  if (!hostBridgeAvailable) {
+    window.overlayUI.setVolume({ value: 66, muted: false });
+    window.overlayUI.setOutputDevices(demoOutputSnapshot);
+    window.overlayUI.setConnectivity({ wifiEnabled: true, bluetoothEnabled: true });
+  }
+  if (hostBridgeAvailable) {
     window.chrome.webview.postMessage({ type: "ready" });
   }
 }());
