@@ -754,6 +754,7 @@ namespace KodiAppliance
         {
             if (outputDevicePanelVisible) HideOutputDevicePanel();
             if (connectivityPanelVisible) HideConnectivityPanel();
+            if (confirmationVisible) HideConfirmation();
             overlayVisible = false;
             Opacity = 0;
             TopMost = false;
