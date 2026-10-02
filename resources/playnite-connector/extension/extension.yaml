@@ -1,0 +1,10 @@
+Id: game-appliance-overlay-playnite
+Name: Game Appliance Overlay
+Author: Aryan J
+Version: 0.1.0
+Module: GameApplianceOverlay.Playnite.dll
+Type: GenericPlugin
+Description: Connector for the lightweight Game Appliance Overlay. Supplies Playnite game metadata, logo, session time, total playtime, and game lifecycle actions over a local named pipe.
+Links:
+  - Name: Source
+    Url: https://github.com/aryan-j/kodi-appliance-games

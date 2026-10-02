@@ -9,3 +9,7 @@ settings.xml
 # Build output: retain only the current packaged companion binary.
 resources/companion/KodiApplianceOverlay-*.exe
 !resources/companion/KodiApplianceOverlay-0.4.6.exe
+
+# Frontend build dependencies and disposable Vite output.
+resources/companion/web-ui-app/node_modules/
+resources/companion/web-ui-dist/

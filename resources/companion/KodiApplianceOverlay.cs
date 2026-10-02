@@ -152,7 +152,7 @@ namespace KodiAppliance
         private readonly List<Button[]> navigationRows = new List<Button[]>();
         private readonly RoundedPanel controlCard;
         private readonly RoundedPanel statsCard;
-        private readonly RoundedPictureBox posterBox;
+        private readonly RoundedPictureBox logoBox;
         private readonly VolumeMeter volumeMeter;
         private readonly Label sessionValue;
         private readonly Label totalValue;
@@ -177,7 +177,7 @@ namespace KodiAppliance
             Process gameProcess,
             string title,
             bool suspendGame,
-            string poster,
+            string logo,
             string fanart,
             string genres,
             string studio,
@@ -273,13 +273,13 @@ namespace KodiAppliance
                 BackColor = Color.Transparent
             };
             content.Controls.Add(artColumn);
-            posterBox = new RoundedPictureBox {
+            logoBox = new RoundedPictureBox {
                 Dock = DockStyle.Top,
                 Height = 610,
                 CornerRadius = 28,
-                Image = DrawingUtil.LoadImage(poster)
+                Image = DrawingUtil.LoadImage(logo)
             };
-            artColumn.Controls.Add(posterBox);
+            artColumn.Controls.Add(logoBox);
             statsCard = new RoundedPanel {
                 Dock = DockStyle.Bottom,
                 Height = 128,
@@ -297,7 +297,7 @@ namespace KodiAppliance
             content.Resize += delegate { layoutContent(); };
             Action layoutArtwork = delegate {
                 int artworkX = Math.Max(820, ClientSize.Width - 482);
-                posterBox.Bounds = new Rectangle(artworkX, 152, 360, 600);
+                logoBox.Bounds = new Rectangle(artworkX, 152, 360, 600);
                 statsCard.Bounds = new Rectangle(artworkX, 774, 360, 128);
             };
             Resize += delegate { layoutArtwork(); };
@@ -316,7 +316,7 @@ namespace KodiAppliance
             statsCard.Controls.Add(totalValue);
             statsCard.Controls.Add(sessionCaption);
             statsCard.Controls.Add(totalCaption);
-            Controls.Add(posterBox);
+            Controls.Add(logoBox);
             Controls.Add(statsCard);
             controlCard.Controls.Add(prompts);
 
@@ -420,7 +420,7 @@ namespace KodiAppliance
             layoutContent();
             layoutArtwork();
             content.PerformLayout();
-            posterBox.BringToFront();
+            logoBox.BringToFront();
             statsCard.BringToFront();
             header.BringToFront();
             prompts.BringToFront();
@@ -863,12 +863,14 @@ namespace KodiAppliance
             bool suspendGame = false;
             bool previewMode = false;
             bool webUi = false;
-            string poster = "";
+            string logo = "";
             string fanart = "";
             string genres = "";
             string studio = "";
             string fontRegular = "";
             string fontBold = "";
+            string pipeName = "";
+            string pipeToken = "";
             long totalSeconds = 0;
             long sessionStart = 0;
             for (int i = 0; i < args.Length; i++)
@@ -878,7 +880,7 @@ namespace KodiAppliance
                 else if (args[i] == "--suspend-game") suspendGame = true;
                 else if (args[i] == "--preview") previewMode = true;
                 else if (args[i] == "--web-ui") webUi = true;
-                else if (args[i] == "--poster" && i + 1 < args.Length) poster = args[++i];
+                else if (args[i] == "--logo" && i + 1 < args.Length) logo = args[++i];
                 else if (args[i] == "--fanart" && i + 1 < args.Length) fanart = args[++i];
                 else if (args[i] == "--genres" && i + 1 < args.Length) genres = args[++i];
                 else if (args[i] == "--studio" && i + 1 < args.Length) studio = args[++i];
@@ -888,6 +890,8 @@ namespace KodiAppliance
                     Int64.TryParse(args[++i], out sessionStart);
                 else if (args[i] == "--font-regular" && i + 1 < args.Length) fontRegular = args[++i];
                 else if (args[i] == "--font-bold" && i + 1 < args.Length) fontBold = args[++i];
+                else if (args[i] == "--pipe-name" && i + 1 < args.Length) pipeName = args[++i];
+                else if (args[i] == "--pipe-token" && i + 1 < args.Length) pipeToken = args[++i];
             }
             if (pid <= 0) return;
             Process game;
@@ -899,13 +903,13 @@ namespace KodiAppliance
             if (webUi)
             {
                 Application.Run(new WebOverlayForm(
-                    game, title, suspendGame, poster, fanart, genres, studio,
-                    totalSeconds, sessionStart, previewMode));
+                    game, title, suspendGame, logo, genres, studio,
+                    totalSeconds, sessionStart, previewMode, pipeName, pipeToken));
             }
             else
             {
                 Application.Run(new OverlayForm(
-                    game, title, suspendGame, poster, fanart, genres, studio,
+                    game, title, suspendGame, logo, fanart, genres, studio,
                     totalSeconds, sessionStart, fontRegular, fontBold, previewMode));
             }
         }

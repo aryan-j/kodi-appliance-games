@@ -11,7 +11,9 @@ optional controller-operated companion overlay.
 - `resources/lib/apps.py`: static desktop application catalog and Windows launch
   command helpers.
 - `resources/companion/`: C# companion overlay and build script.
-- `resources/companion/web-ui/`: controller-first overlay interface.
+- `resources/companion/web-ui-app/`: component source, connector contract and
+  local build tooling for the overlay interface.
+- `resources/companion/web-ui/`: generated, network-free WebView2 package.
 - `resources/media/apps/`: checked-in Hydra and ChatGPT application artwork.
 - `resources/settings.xml`: add-on settings schema. Credentials are deliberately
   stored only in Kodi's profile and are never committed.
@@ -63,6 +65,18 @@ plugin paths are exposed for games sharing the same release year, publisher or
 genre so a Games-specific More Info layout can render those widget rows.
 
 ## Building the companion
+
+Build the frontend package before compiling the companion binary:
+
+```powershell
+Set-Location resources/companion/web-ui-app
+pnpm install
+pnpm run build
+Set-Location ../../..
+```
+
+The frontend build is statically bundled. Preact is a build-time dependency;
+the packaged overlay does not load JavaScript, CSS or fonts from the network.
 
 Run the build script from PowerShell:
 

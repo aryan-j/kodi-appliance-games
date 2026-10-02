@@ -16,15 +16,16 @@ namespace KodiAppliance
     internal sealed class WebOverlayForm : Form
     {
         private readonly Process game;
-        private readonly string gameTitle;
-        private readonly string genres;
-        private readonly string studio;
-        private readonly string poster;
-        private readonly string fanart;
-        private readonly long totalSeconds;
-        private readonly long sessionStartEpoch;
+        private string gameTitle;
+        private string genres;
+        private string studio;
+        private string logo;
+        private long totalSeconds;
+        private long sessionStartEpoch;
         private readonly bool suspendOnOverlay;
         private readonly bool previewMode;
+        private readonly string pipeName;
+        private readonly string pipeToken;
         private readonly Native.XInputGetStateEx getState;
         private readonly WebView2 webView;
         private readonly FormsTimer inputTimer;
@@ -35,13 +36,12 @@ namespace KodiAppliance
             new[] { "return", "exit" },
             new[] { "volume" },
             new[] { "outputDevice" },
-            new[] { "wifi", "wifiDetails" },
-            new[] { "bluetooth", "bluetoothDetails" },
+            new[] { "wifi", "bluetooth" },
             new[] { "sleep", "restart", "shutdown" }
         };
         private int focusRow;
         private int focusColumn;
-        private ushort previousButtons;
+        private uint previousButtons;
         private bool overlayVisible;
         private bool gameSuspended;
         private bool webReady;
@@ -55,6 +55,14 @@ namespace KodiAppliance
         private bool connectivityPanelVisible;
         private bool connectivitySnapshotInFlight;
         private bool connectivityActionInFlight;
+        private OverlayPipeClient pipeClient;
+        private bool logoHostMapped;
+        // XInput exposes the PlayStation square face button as the X bit. Keep
+        // synthetic trigger commands outside the 16-bit XInput button mask so
+        // square cannot be mistaken for volume-down.
+        private const uint ControllerSquareButton = 0x00004000;
+        private const uint ControllerVolumeDownCommand = 0x00010000;
+        private const uint ControllerVolumeUpCommand = 0x00020000;
         private const int OverlayHotKey = 0x4B42;
         private const int HotKeyMessage = 0x0312;
 
@@ -62,24 +70,26 @@ namespace KodiAppliance
             Process gameProcess,
             string title,
             bool suspendGame,
-            string posterPath,
-            string fanartPath,
+            string logoPath,
             string genreText,
             string studioText,
             long accumulatedSeconds,
             long startEpoch,
-            bool preview)
+            bool preview,
+            string connectorPipeName,
+            string connectorPipeToken)
         {
             game = gameProcess;
             gameTitle = String.IsNullOrWhiteSpace(title) ? "Game" : title;
             genres = genreText ?? "";
             studio = studioText ?? "";
-            poster = posterPath ?? "";
-            fanart = fanartPath ?? "";
+            logo = logoPath ?? "";
             totalSeconds = accumulatedSeconds;
             sessionStartEpoch = NormalizeStartEpoch(startEpoch);
             suspendOnOverlay = suspendGame;
             previewMode = preview;
+            pipeName = connectorPipeName ?? "";
+            pipeToken = connectorPipeToken ?? "";
             getState = Native.LoadXInput();
 
             Text = "Kodi Appliance Overlay";
@@ -95,9 +105,14 @@ namespace KodiAppliance
 
             webView = new WebView2 {
                 Dock = DockStyle.Fill,
-                DefaultBackgroundColor = Color.Transparent,
-                TabStop = false
+                BackColor = Color.Transparent,
+                DefaultBackgroundColor = Color.FromArgb(0, 0, 0, 0),
+                // Let mouse/keyboard interaction establish WebView focus. The
+                // form still receives controller and ProcessCmdKey input via
+                // normal WinForms bubbling.
+                TabStop = true
             };
+            webView.MouseDown += delegate { webView.Focus(); };
             Controls.Add(webView);
 
             inputTimer = new FormsTimer { Interval = 60 };
@@ -115,7 +130,10 @@ namespace KodiAppliance
                 if (previewMode) ShowOverlay();
                 else HideOverlay();
             };
-            FormClosed += delegate { ResumeGame(); };
+            FormClosed += delegate {
+                ResumeGame();
+                if (pipeClient != null) pipeClient.Dispose();
+            };
         }
 
         private async void InitializeWebView()
@@ -128,9 +146,20 @@ namespace KodiAppliance
                     Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
                     "KodiApplianceOverlay", "WebView2");
                 Directory.CreateDirectory(userData);
+                // Set the transparent controller color before WebView2 creates
+                // its native environment, avoiding an opaque first surface or
+                // grey flash while the overlay is loading.
+                Environment.SetEnvironmentVariable(
+                    "WEBVIEW2_DEFAULT_BACKGROUND_COLOR", "00000000");
                 CoreWebView2Environment environment =
                     await CoreWebView2Environment.CreateAsync(null, userData);
                 await webView.EnsureCoreWebView2Async(environment);
+                // Re-apply transparency after the controller exists. This is
+                // the value that WebView2 actually composites beneath the page;
+                // setting the WinForms property only before initialization can
+                // leave the native child surface opaque on some runtimes.
+                webView.DefaultBackgroundColor = Color.FromArgb(0, 0, 0, 0);
+                webView.BackColor = Color.Transparent;
                 // The host process is system-DPI aware, while WebView2 applies the
                 // monitor scale again to its CSS surface. Normalize to 96 DPI so
                 // Claude's 16:9 layout maps to the actual fullscreen client area.
@@ -144,14 +173,14 @@ namespace KodiAppliance
                 core.SetVirtualHostNameToFolderMapping(
                     "overlay.local", uiDirectory,
                     CoreWebView2HostResourceAccessKind.DenyCors);
-                MapArtwork(core, "poster.local", poster);
-                MapArtwork(core, "fanart.local", fanart);
+                logoHostMapped = MapArtwork(core, "logo.local", logo);
                 core.WebMessageReceived += OnWebMessage;
                 core.NavigationCompleted += delegate {
                     webReady = true;
                     SendInitialState();
                 };
                 webView.Source = new Uri("https://overlay.local/index.html");
+                StartPipeClient();
             }
             catch (Exception exception)
             {
@@ -160,13 +189,92 @@ namespace KodiAppliance
             }
         }
 
-        private static void MapArtwork(CoreWebView2 core, string host, string path)
+        private static bool MapArtwork(CoreWebView2 core, string host, string path)
         {
-            if (String.IsNullOrWhiteSpace(path) || !File.Exists(path)) return;
+            if (String.IsNullOrWhiteSpace(path) || !File.Exists(path)) return false;
             string directory = Path.GetDirectoryName(path);
-            if (String.IsNullOrWhiteSpace(directory)) return;
+            if (String.IsNullOrWhiteSpace(directory)) return false;
             core.SetVirtualHostNameToFolderMapping(
                 host, directory, CoreWebView2HostResourceAccessKind.DenyCors);
+            return true;
+        }
+
+        private void StartPipeClient()
+        {
+            if (String.IsNullOrWhiteSpace(pipeName) || String.IsNullOrWhiteSpace(pipeToken))
+                return;
+            pipeClient = new OverlayPipeClient(pipeName, pipeToken);
+            pipeClient.MessageReceived += HandlePipeMessage;
+            pipeClient.Start();
+        }
+
+        private void HandlePipeMessage(Dictionary<string, object> message)
+        {
+            object typeValue;
+            if (!message.TryGetValue("type", out typeValue)) return;
+            string type = typeValue as string;
+            if (type == "hello" || type == "snapshot")
+            {
+                object snapshotValue;
+                if (message.TryGetValue("snapshot", out snapshotValue))
+                    ApplyPipeSnapshot(snapshotValue as Dictionary<string, object>);
+            }
+            else if (type == "close")
+            {
+                RunOnUiThread(delegate { Application.Exit(); });
+            }
+        }
+
+        private void ApplyPipeSnapshot(Dictionary<string, object> snapshot)
+        {
+            if (snapshot == null) return;
+            RunOnUiThread(delegate {
+                string text;
+                if (TryString(snapshot, "title", out text) && !String.IsNullOrWhiteSpace(text))
+                    gameTitle = text;
+                if (TryString(snapshot, "genres", out text)) genres = text;
+                if (TryString(snapshot, "studio", out text)) studio = text;
+                if (TryString(snapshot, "logoPath", out text) && !String.IsNullOrWhiteSpace(text))
+                    logo = text;
+                long value;
+                if (TryInt64(snapshot, "totalSeconds", out value)) totalSeconds = Math.Max(0, value);
+                if (TryInt64(snapshot, "sessionStartEpoch", out value))
+                    sessionStartEpoch = NormalizeStartEpoch(value);
+                if (!logoHostMapped && webView.CoreWebView2 != null)
+                    logoHostMapped = MapArtwork(webView.CoreWebView2, "logo.local", logo);
+                if (webReady) SendInitialState();
+            });
+        }
+
+        private static bool TryString(Dictionary<string, object> values, string key, out string result)
+        {
+            object value;
+            result = "";
+            return values.TryGetValue(key, out value) &&
+                (result = value as string) != null;
+        }
+
+        private static bool TryInt64(Dictionary<string, object> values, string key, out long result)
+        {
+            object value;
+            result = 0;
+            if (!values.TryGetValue(key, out value) || value == null) return false;
+            try {
+                result = Convert.ToInt64(value);
+                return true;
+            }
+            catch { return false; }
+        }
+
+        private void RunOnUiThread(MethodInvoker callback)
+        {
+            try
+            {
+                if (IsDisposed || !IsHandleCreated) return;
+                if (InvokeRequired) BeginInvoke(callback);
+                else callback();
+            }
+            catch { }
         }
 
         private void OnWebMessage(object sender, CoreWebView2WebMessageReceivedEventArgs args)
@@ -236,13 +344,13 @@ namespace KodiAppliance
                 { "clock", DateTime.Now.ToString("h:mm tt") },
                 { "sessionTime", FormatDuration(CurrentSessionSeconds()) },
                 { "totalPlaytime", FormatDuration(totalSeconds) },
-                { "posterUrl", ArtworkUrl("poster.local", poster) },
-                { "fanartUrl", ArtworkUrl("fanart.local", fanart) },
+                { "logoUrl", ArtworkUrl("logo.local", logo) },
                 { "volume", SystemAudio.GetVolume() },
                 { "muted", muted },
                 { "outputDevices", SystemAudio.GetOutputDeviceSnapshot() },
                 { "wifiEnabled", wifiEnabled },
                 { "bluetoothEnabled", bluetoothEnabled },
+                { "connectivitySnapshot", SystemConnectivity.GetCachedSnapshot() },
                 { "focusedAction", CurrentAction() }
             };
             Execute("window.overlayUI.initialize(" + serializer.Serialize(payload) + ");");
@@ -270,15 +378,16 @@ namespace KodiAppliance
         private void UpdateDynamicState(object sender, EventArgs args)
         {
             if (!webReady) return;
-            Execute("window.overlayUI.setClock(" +
-                serializer.Serialize(DateTime.Now.ToString("h:mm tt")) + ");");
-            Execute("window.overlayUI.setSessionTime(" +
-                serializer.Serialize(FormatDuration(CurrentSessionSeconds())) + ");");
             Dictionary<string, object> volume = new Dictionary<string, object> {
                 { "value", SystemAudio.GetVolume() },
                 { "muted", muted }
             };
-            Execute("window.overlayUI.setVolume(" + serializer.Serialize(volume) + ");");
+            Dictionary<string, object> payload = new Dictionary<string, object> {
+                { "clock", DateTime.Now.ToString("h:mm tt") },
+                { "sessionTime", FormatDuration(CurrentSessionSeconds()) },
+                { "volume", volume }
+            };
+            Execute("window.overlayUI.updateDynamicState(" + serializer.Serialize(payload) + ");");
         }
 
         private long CurrentSessionSeconds()
@@ -308,6 +417,22 @@ namespace KodiAppliance
         private string CurrentAction()
         {
             return navigationRows[focusRow][focusColumn];
+        }
+
+        private bool OpenFocusedConnectionDetails()
+        {
+            string action = CurrentAction();
+            if (action == "wifi")
+            {
+                ShowConnectivityPanel(RadioKind.WiFi);
+                return true;
+            }
+            if (action == "bluetooth")
+            {
+                ShowConnectivityPanel(RadioKind.Bluetooth);
+                return true;
+            }
+            return false;
         }
 
         private void SetFocus(int row, int column)
@@ -382,7 +507,11 @@ namespace KodiAppliance
                 else if (action == "confirmNo") HideConfirmation();
                 return;
             }
-            if (action == "return") HideOverlay();
+            if (action == "return")
+            {
+                if (pipeClient != null) pipeClient.SendAction("return");
+                HideOverlay();
+            }
             else if (action == "exit") ShowConfirmation("Exit " + gameTitle + "?", "exit");
             else if (action == "volume") ToggleMute();
             else if (action == "outputDevice") ShowOutputDevicePanel();
@@ -625,6 +754,12 @@ namespace KodiAppliance
 
         private void ExitGameConfirmed()
         {
+            if (pipeClient != null)
+            {
+                pipeClient.SendAction("exit");
+                Application.Exit();
+                return;
+            }
             ResumeGame();
             try
             {
@@ -644,8 +779,8 @@ namespace KodiAppliance
 
         private void PollController(object sender, EventArgs args)
         {
-            ushort buttons = PollControllerState();
-            ushort pressed = (ushort)(buttons & ~previousButtons);
+            uint buttons = PollControllerState();
+            uint pressed = buttons & ~previousButtons;
             previousButtons = buttons;
             if ((pressed & Native.Guide) != 0)
             {
@@ -686,16 +821,18 @@ namespace KodiAppliance
                 if (confirmationVisible) HideConfirmation(); else HideOverlay();
                 return;
             }
+            if ((pressed & ControllerSquareButton) != 0 && OpenFocusedConnectionDetails())
+                return;
             if ((pressed & Native.DPadUp) != 0) MoveFocus(0, -1);
             if ((pressed & Native.DPadDown) != 0) MoveFocus(0, 1);
             if ((pressed & Native.DPadLeft) != 0) MoveFocus(-1, 0);
             if ((pressed & Native.DPadRight) != 0) MoveFocus(1, 0);
-            if ((pressed & Native.VolumeDownCommand) != 0) AdjustVolume(-5);
-            if ((pressed & Native.VolumeUpCommand) != 0) AdjustVolume(5);
+            if ((pressed & ControllerVolumeDownCommand) != 0) AdjustVolume(-5);
+            if ((pressed & ControllerVolumeUpCommand) != 0) AdjustVolume(5);
             if ((pressed & Native.A) != 0) ActivateCurrent();
         }
 
-        private ushort PollControllerState()
+        private uint PollControllerState()
         {
             if (getState != null)
             {
@@ -703,11 +840,11 @@ namespace KodiAppliance
                 {
                     Native.XInputState state;
                     if (getState(index, out state) != 0) continue;
-                    ushort buttons = state.Gamepad.Buttons;
+                    uint buttons = state.Gamepad.Buttons;
                     if (state.Gamepad.LeftTrigger > 100)
-                        buttons |= Native.VolumeDownCommand;
+                        buttons |= ControllerVolumeDownCommand;
                     if (state.Gamepad.RightTrigger > 100)
-                        buttons |= Native.VolumeUpCommand;
+                        buttons |= ControllerVolumeUpCommand;
                     return buttons;
                 }
             }
@@ -718,12 +855,13 @@ namespace KodiAppliance
                     Flags = Native.JoyReturnAll
                 };
                 if (Native.joyGetPosEx(index, ref state) != 0) continue;
-                ushort mapped = 0;
+                uint mapped = 0;
+                if ((state.Buttons & (1u << 0)) != 0) mapped |= ControllerSquareButton;
                 if ((state.Buttons & (1u << 1)) != 0) mapped |= Native.A;
                 if ((state.Buttons & (1u << 2)) != 0) mapped |= Native.B;
                 if ((state.Buttons & (1u << 12)) != 0) mapped |= Native.Guide;
-                if ((state.Buttons & (1u << 6)) != 0) mapped |= Native.VolumeDownCommand;
-                if ((state.Buttons & (1u << 7)) != 0) mapped |= Native.VolumeUpCommand;
+                if ((state.Buttons & (1u << 6)) != 0) mapped |= ControllerVolumeDownCommand;
+                if ((state.Buttons & (1u << 7)) != 0) mapped |= ControllerVolumeUpCommand;
                 if (state.Pov != Native.JoyPovCentered)
                 {
                     uint pov = state.Pov % 36000;
@@ -828,6 +966,7 @@ namespace KodiAppliance
             if (key == Keys.Down || key == Keys.S) { MoveFocus(0, 1); return true; }
             if (key == Keys.Left) { MoveFocus(-1, 0); return true; }
             if (key == Keys.Right) { MoveFocus(1, 0); return true; }
+            if (key == Keys.X && OpenFocusedConnectionDetails()) return true;
             if (key == Keys.Enter || key == Keys.Space) { ActivateCurrent(); return true; }
             if (key == Keys.Escape || key == Keys.Back)
             {

@@ -12,6 +12,7 @@ if (Test-Path -LiteralPath $outputPath) {
 $sourcePaths = @(
     "ArcticOverlayUi.cs",
     "SystemControls.cs",
+    "OverlayPipeClient.cs",
     "WebOverlayForm.cs",
     "KodiApplianceOverlay.cs"
 ) | ForEach-Object {
