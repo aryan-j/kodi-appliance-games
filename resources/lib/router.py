@@ -44,7 +44,8 @@ def game_item(game, origin="list"):
     favorite_label = "Remove from Favorites" if game["favorite"] else "Add to Favorites"
     item.addContextMenuItems([
         (favorite_label, f"RunPlugin({url(favorite_action, game_id=game['id'])})"),
-        ("Refresh Metadata", f"RunPlugin({url('refresh_metadata', game_id=game['id'])})"),
+        ("Refresh metadata (IGDB)", f"RunPlugin({url('refresh_igdb', game_id=game['id'])})"),
+        ("Refresh artwork (SteamGridDB)", f"RunPlugin({url('refresh_artwork', game_id=game['id'])})"),
         ("Locate Executable", f"RunPlugin({url('locate', game_id=game['id'])})"),
     ])
     xbmcplugin.addDirectoryItem(HANDLE, target, item, False)
@@ -74,6 +75,8 @@ def build_game_listitem(game, path=""):
     if game["community_score"]:
         # IGDB ratings use a 0-100 scale; Kodi and Arctic Fuse expect 0-10.
         tag.setRating(float(game["community_score"]) / 10.0, 0, "igdb", True)
+    if game["release_date"]:
+        tag.setPremiered(game["release_date"])
     tag.setPlaycount(int(game["play_count"] or 0))
     tag.setDuration(int(game["playtime_seconds"] or 0))
     if game["created_at"]:
@@ -94,11 +97,51 @@ def build_game_listitem(game, path=""):
     item.setProperty("game.id", game["id"])
     item.setProperty("game.playtime", str(game["playtime_seconds"] or 0))
     item.setProperty("game.lastplayed", game["last_played"] or "")
+    item.setProperty("game.developer", game["developer"] or "")
+    item.setProperty("game.publisher", game["publisher"] or "")
+    item.setProperty("game.franchise", game["franchise"] or "")
+    item.setProperty("game.engine", game["engines"] or "")
+    item.setProperty("game.release_date", game["release_date"] or "")
+    item.setProperty("game.rating.igdb", _score(game["community_score"]))
+    item.setProperty("game.rating.igdb_count", str(game["community_score_count"] or 0))
+    item.setProperty("game.platforms", game["platforms"] or "")
+    item.setProperty("game.modes", game["game_modes"] or "")
+    item.setProperty("game.perspectives", game["player_perspectives"] or "")
+    item.setProperty("game.themes", game["themes"] or "")
+    item.setProperty("game.storyline", game["storyline"] or "")
+    item.setProperty("game.igdb_summary", game["igdb_summary"] or "")
+    item.setProperty("game.genres", game["genres"] or "")
+    item.setProperty("game.igdb_user_score", _score_100(game["community_score"]))
+    item.setProperty("game.time_to_beat.main", _duration(game["time_to_beat_normally"]))
+    item.setProperty("game.time_to_beat.extra", _duration(game["time_to_beat_hastily"]))
+    item.setProperty("game.time_to_beat.extras", _duration(game["time_to_beat_hastily"]))
+    item.setProperty("game.time_to_beat.completionist", _duration(game["time_to_beat_completely"]))
+    item.setProperty("game.time_to_beat.count", str(game["time_to_beat_count"] or 0))
+    item.setProperty("game.related.year", url("related", game_id=game["id"], field="year"))
+    item.setProperty("game.related.publisher", url("related", game_id=game["id"], field="publisher"))
+    item.setProperty("game.related.genre", url("related", game_id=game["id"], field="genre"))
     executable_available = bool(game["executable"] and os.path.isfile(os.path.expandvars(game["executable"])))
     item.setProperty("game.available", "true" if executable_available else "false")
     if not executable_available:
         item.setProperty("game.status", "Executable missing")
     return item
+
+
+def _score(value):
+    return f"{float(value) / 10.0:.1f}" if value is not None else ""
+
+
+def _score_100(value):
+    return f"{float(value):.1f}" if value is not None else ""
+
+
+def _duration(seconds):
+    seconds = int(seconds or 0)
+    if not seconds:
+        return ""
+    hours, remainder = divmod(seconds, 3600)
+    minutes = remainder // 60
+    return f"{hours}h {minutes}m" if minutes else f"{hours}h"
 
 
 def root():
@@ -146,6 +189,27 @@ def genres():
 
 def genre(name):
     for game in database.list_games("installed = 1 AND hidden = 0 AND genres LIKE ?", (f"%{name}%",)):
+        game_item(game)
+    xbmcplugin.setContent(HANDLE, "games")
+    xbmcplugin.endOfDirectory(HANDLE)
+
+
+def related(game_id="", field="", kind="", value="", exclude=""):
+    if game_id and field:
+        games = database.related_games(game_id, field)
+    else:
+        columns = {"year": "year", "publisher": "publisher"}
+        column = columns.get(kind)
+        if not column or not value:
+            xbmcplugin.endOfDirectory(HANDLE, succeeded=False)
+            return
+        where = f"installed = 1 AND hidden = 0 AND {column} = ?"
+        params = [value]
+        if exclude:
+            where += " AND id != ?"
+            params.append(exclude)
+        games = database.list_games(where, tuple(params), order="name COLLATE NOCASE")
+    for game in games:
         game_item(game)
     xbmcplugin.setContent(HANDLE, "games")
     xbmcplugin.endOfDirectory(HANDLE)
@@ -252,59 +316,56 @@ def _choose_igdb(name):
     return results[selected] if selected >= 0 else None
 
 
-def _save_igdb(game_id, executable, result):
-    values = metadata.normalize(result)
+def _save_igdb_metadata(game_id, executable, result):
+    time_to_beat = metadata.get_time_to_beat(result["id"])
+    values = metadata.normalize(result, time_to_beat)
+    database.add_or_update_metadata(game_id, executable, values)
+    return values
+
+
+def _refresh_steamgriddb_artwork(game_id):
+    game = database.get_game(game_id)
+    if not game:
+        raise RuntimeError("Game not found")
+    if not metadata._sgdb_key():
+        raise RuntimeError("Configure the SteamGridDB API key in Games settings")
     media_folder = os.path.join(metadata.PROFILE, "media", game_id.replace(":", "_"))
-    sgdb_art = {}
-    if metadata._sgdb_key():
-        try:
-            sgdb_art = metadata.steamgriddb_art(values["name"])
-            xbmc.log(
-                "[Kodi Appliance Games] SteamGridDB artwork roles: "
-                + ", ".join(
-                    f"{role}={'yes' if sgdb_art.get(role) else 'no'}"
-                    for role in ("cover", "background", "logo")
-                ),
-                xbmc.LOGINFO,
-            )
-        except Exception as exc:
-            xbmc.log(
-                f"[Kodi Appliance Games] SteamGridDB artwork fallback: {exc}",
-                xbmc.LOGWARNING,
-            )
-
-    def fetch(role, primary_url, fallback_extension):
-        source_url = sgdb_art.get(role) or primary_url
-        if not source_url:
-            return ""
-        extension = metadata.extension_from_url(source_url, fallback_extension)
-        return metadata.download(source_url, os.path.join(media_folder, f"{role}{extension}"))
-
-    cover = fetch("cover", values["cover_url"], ".jpg")
-    background = fetch("background", values["background_url"], ".jpg")
-    logo = fetch("logo", "", ".png")
-    # The appliance intentionally uses one identical image for fanart and
-    # landscape cards. Keep this invariant during every metadata refresh.
-    icon = ""
-    if background:
-        extension = os.path.splitext(background)[1].lower() or ".jpg"
-        icon = os.path.join(media_folder, f"landscape{extension}")
-        if os.path.normcase(background) != os.path.normcase(icon):
-            shutil.copy2(background, icon)
-    database.add_or_update_metadata(
-        game_id,
-        executable,
-        values,
-        cover,
-        background,
-        logo,
-        icon,
-    )
-    return {
-        "metadata": "IGDB",
-        "artwork": "SteamGridDB" if sgdb_art else "IGDB",
-        "steamgriddb_game": sgdb_art.get("game_name", ""),
-    }
+    sgdb_art = metadata.steamgriddb_art(game["name"], game["steamgriddb_id"] or "")
+    if not sgdb_art:
+        raise RuntimeError("No SteamGridDB match found")
+    os.makedirs(media_folder, exist_ok=True)
+    staged = {}
+    try:
+        for role, fallback_extension in (
+            ("cover", ".jpg"),
+            ("background", ".jpg"),
+            ("logo", ".png"),
+        ):
+            source_url = sgdb_art.get(role) or ""
+            if not source_url:
+                continue
+            extension = metadata.extension_from_url(source_url, fallback_extension)
+            destination = os.path.join(media_folder, f"{role}{extension}")
+            temporary = destination + ".download"
+            metadata.download(source_url, temporary)
+            staged[role] = (temporary, destination)
+        if "background" in staged:
+            background_temporary, background_destination = staged["background"]
+            extension = os.path.splitext(background_destination)[1].lower() or ".jpg"
+            icon_destination = os.path.join(media_folder, f"landscape{extension}")
+            icon_temporary = icon_destination + ".download"
+            shutil.copy2(background_temporary, icon_temporary)
+            staged["icon"] = (icon_temporary, icon_destination)
+        artwork = {}
+        for role, (temporary, destination) in staged.items():
+            os.replace(temporary, destination)
+            artwork[role] = destination
+    finally:
+        for temporary, _destination in staged.values():
+            if os.path.exists(temporary):
+                os.remove(temporary)
+    database.update_artwork(game_id, artwork, sgdb_art.get("game_id"))
+    return sgdb_art
 
 
 def add_game():
@@ -328,17 +389,28 @@ def add_game():
     try:
         result = _choose_igdb(name)
         if result:
-            outcome = _save_igdb(f"igdb:{result['id']}", executable, result)
+            game_id = f"igdb:{result['id']}"
+            _save_igdb_metadata(game_id, executable, result)
+            artwork = "unchanged"
+            if metadata._sgdb_key():
+                try:
+                    _refresh_steamgriddb_artwork(game_id)
+                    artwork = "SteamGridDB"
+                except Exception as exc:
+                    xbmc.log(
+                        f"[Kodi Appliance Games] Initial artwork refresh failed: {exc}",
+                        xbmc.LOGWARNING,
+                    )
             xbmcgui.Dialog().notification(
                 "Games",
-                f"Game added · artwork: {outcome['artwork']}",
+                f"Game added · artwork: {artwork}",
             )
     except Exception as exc:
         xbmcgui.Dialog().ok("Games metadata", str(exc))
     xbmcplugin.endOfDirectory(HANDLE, succeeded=True)
 
 
-def refresh_metadata(game_id):
+def refresh_igdb(game_id):
     game = database.get_game(game_id)
     if not game:
         return
@@ -349,14 +421,23 @@ def refresh_metadata(game_id):
         if not result:
             result = _choose_igdb(game["name"])
         if result:
-            outcome = _save_igdb(game_id, "", result)
-            xbmcgui.Dialog().notification(
-                "Games",
-                f"Refreshed · artwork: {outcome['artwork']}",
-            )
+            _save_igdb_metadata(game_id, "", result)
+            xbmcgui.Dialog().notification("Games", "IGDB metadata refreshed")
             xbmc.executebuiltin("Container.Refresh")
     except Exception as exc:
         xbmcgui.Dialog().ok("Games metadata", str(exc))
+
+
+def refresh_artwork(game_id):
+    try:
+        result = _refresh_steamgriddb_artwork(game_id)
+        xbmcgui.Dialog().notification(
+            "Games",
+            f"SteamGridDB artwork refreshed · {result.get('game_name', '')}",
+        )
+        xbmc.executebuiltin("Container.Refresh")
+    except Exception as exc:
+        xbmcgui.Dialog().ok("Games artwork", str(exc))
 
 
 def test_metadata():
@@ -427,6 +508,14 @@ def run():
         genres()
     elif action == "genre":
         genre(params.get("name", [""])[0])
+    elif action == "related":
+        related(
+            params.get("game_id", [""])[0],
+            params.get("field", [""])[0],
+            params.get("kind", [""])[0],
+            params.get("value", [""])[0],
+            params.get("exclude", [""])[0],
+        )
     elif action == "details":
         details(
             params.get("game_id", [""])[0],
@@ -446,8 +535,10 @@ def run():
         launch_self_test()
     elif action == "add_game":
         add_game()
-    elif action == "refresh_metadata":
-        refresh_metadata(params.get("game_id", [""])[0])
+    elif action == "refresh_igdb":
+        refresh_igdb(params.get("game_id", [""])[0])
+    elif action == "refresh_artwork":
+        refresh_artwork(params.get("game_id", [""])[0])
     elif action == "settings":
         xbmc.executebuiltin("Addon.OpenSettings(plugin.program.appliance.games)")
         xbmcplugin.endOfDirectory(HANDLE, succeeded=True)
